@@ -1,0 +1,259 @@
+@implements IDisposable
+@implements IHandleEvent
+@inject PinGuard Guard
+@inject TimeProvider Clock
+
+@if (unlocked)
+{
+    <div class="gate__session" @onpointerdown="KeepAlive" @onkeydown="KeepAlive">
+        @ChildContent
+    </div>
+}
+else if (Guard.LockedUntil is { } until)
+{
+    <section class="gate gate--locked" aria-live="polite">
+        <img class="gate__image" src="@Assets["images/denied.png"]" alt="Inställningarna är låsta" />
+        <p class="gate__countdown">Försök igen om <span>@Remaining(until)</span></p>
+    </section>
+}
+else if (!Guard.IsSet)
+{
+    <section class="gate surface surface--pad">
+        <span class="material-symbols-outlined gate__icon" aria-hidden="true">lock</span>
+        <h2 class="gate__title">Ingen PIN är satt</h2>
+        <p class="settings__help">
+            Inställningarna öppnas först när det finns en kod. Den sätts i terminalen på
+            Raspberry Pi:n, aldrig härifrån: <code>ulsavilagatan-pin</code>
+        </p>
+    </section>
+}
+else
+{
+    <section class="gate surface surface--pad" tabindex="0" @ref="pad" @onkeydown="PressKey" aria-label="Ange PIN för Inställningar">
+        <span class="material-symbols-outlined gate__icon" aria-hidden="true">lock</span>
+        <h2 class="gate__title">Ange PIN</h2>
+
+        <div class="gate__dots" aria-hidden="true">
+            @for (var i = 0; i < PinGuard.Length; i++)
+            {
+                <span class="gate__dot @(i < entered.Length ? "is-filled" : null)"></span>
+            }
+        </div>
+
+        <p class="gate__message @(wrong ? "is-error" : null)" aria-live="polite">@message</p>
+
+        <div class="gate__pad">
+            @foreach (var digit in "123456789")
+            {
+                <button type="button" class="gate__key" disabled="@checking" @onclick="() => Press(digit)">@digit</button>
+            }
+            <span></span>
+            <button type="button" class="gate__key" disabled="@checking" @onclick="() => Press('0')">0</button>
+            <button type="button" class="gate__key gate__key--muted" disabled="@checking" title="Radera" @onclick="Erase">
+                <span class="material-symbols-outlined" aria-hidden="true">backspace</span>
+            </button>
+        </div>
+    </section>
+}
+
+@code {
+    private static readonly TimeSpan IdleLimit = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan Tick = TimeSpan.FromSeconds(1);
+
+    private readonly CancellationTokenSource stopping = new();
+    private ElementReference pad;
+    private bool unlocked;
+    private bool checking;
+    private bool wrong;
+    private bool wasLocked;
+    private bool focusPad;
+    private string entered = string.Empty;
+    private string? message;
+    private DateTimeOffset lastActivity;
+
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+
+    public bool IsUnlocked => unlocked;
+
+    private bool ShowsPad => !unlocked && Guard.IsSet && Guard.LockedUntil is null;
+
+    protected override void OnInitialized()
+    {
+        Guard.LockedOut += OnLockedOut;
+        wasLocked = Guard.LockedUntil is not null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ = WatchAsync(stopping.Token);
+            focusPad = true;
+        }
+
+        if (focusPad && ShowsPad)
+        {
+            focusPad = false;
+
+            try
+            {
+                await pad.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException)
+            {
+            }
+        }
+    }
+
+    Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) => callback.InvokeAsync(arg);
+
+    private void KeepAlive() => lastActivity = Clock.GetUtcNow();
+
+    private async Task Press(char digit)
+    {
+        if (checking || entered.Length >= PinGuard.Length)
+        {
+            return;
+        }
+
+        entered += digit;
+        wrong = false;
+        message = null;
+        StateHasChanged();
+
+        if (entered.Length == PinGuard.Length)
+        {
+            await SubmitAsync();
+        }
+    }
+
+    private void Erase()
+    {
+        if (checking || entered.Length == 0)
+        {
+            return;
+        }
+
+        entered = entered[..^1];
+        StateHasChanged();
+    }
+
+    private async Task PressKey(KeyboardEventArgs e)
+    {
+        if (e.Key is { Length: 1 } key && char.IsAsciiDigit(key[0]))
+        {
+            await Press(key[0]);
+        }
+        else if (e.Key == "Backspace")
+        {
+            Erase();
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        checking = true;
+        StateHasChanged();
+
+        var pin = entered;
+
+        var attempt = await Task.Run(() => Guard.TryUnlock(pin));
+
+        entered = string.Empty;
+        checking = false;
+        wrong = attempt.Outcome == PinOutcome.Wrong;
+        message = wrong ? $"Fel kod · {attempt.AttemptsLeft} försök kvar" : null;
+
+        if (attempt.Outcome == PinOutcome.Unlocked)
+        {
+            unlocked = true;
+            lastActivity = Clock.GetUtcNow();
+        }
+
+        wasLocked = attempt.Outcome == PinOutcome.Locked;
+        focusPad = true;
+        StateHasChanged();
+    }
+
+    private async Task WatchAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(Tick, Clock);
+
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await InvokeAsync(OnTick);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+        }
+    }
+
+    private void OnTick()
+    {
+        if (unlocked)
+        {
+            if (Clock.GetUtcNow() - lastActivity >= IdleLimit)
+            {
+                Lock();
+            }
+
+            return;
+        }
+
+        var locked = Guard.LockedUntil is not null;
+
+        if (!locked && !wasLocked)
+        {
+            return;
+        }
+
+        if (!locked)
+        {
+            focusPad = true;
+        }
+
+        wasLocked = locked;
+        StateHasChanged();
+    }
+
+    private void OnLockedOut() => _ = InvokeAsync(() =>
+    {
+        if (unlocked)
+        {
+            Lock();
+            return;
+        }
+
+        entered = string.Empty;
+        wasLocked = true;
+        StateHasChanged();
+    });
+
+    private void Lock()
+    {
+        unlocked = false;
+        entered = string.Empty;
+        message = null;
+        wrong = false;
+        wasLocked = Guard.LockedUntil is not null;
+        focusPad = true;
+        StateHasChanged();
+    }
+
+    private string Remaining(DateTimeOffset until)
+    {
+        var seconds = Math.Max(0, (int)Math.Ceiling((until - Clock.GetUtcNow()).TotalSeconds));
+        return $"{seconds / 60}:{seconds % 60:00}";
+    }
+
+    public void Dispose()
+    {
+        Guard.LockedOut -= OnLockedOut;
+        stopping.Cancel();
+        stopping.Dispose();
+    }
+}

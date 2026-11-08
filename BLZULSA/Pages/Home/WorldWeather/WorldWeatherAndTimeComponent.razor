@@ -1,0 +1,58 @@
+﻿@inherits DashboardComponentBase
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+<div class="world">
+    @foreach (var city in Cities)
+    {
+        var weather = Weather(city.Key);
+        <div class="surface world__tile">
+            <div class="world__top">
+                <span class="world__city">@city.DisplayName</span>
+                <span class="material-symbols-outlined world__icon" aria-hidden="true">
+                    @WeatherIconMapper.ToIconName(weather?.IconId)
+                </span>
+            </div>
+            <div class="world__bottom">
+                <span class="world__time">@LocalTime(city.TimeZone).ToString("HH:mm")</span>
+                <span class="world__temp">@Format(weather?.TemperatureC)°</span>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Timer? clock;
+    private DateTime utcNow = DateTime.UtcNow;
+    private IEnumerable<CityOptions> Cities => Options.CurrentValue.OpenWeather.Cities.Where(c => !c.IsPrimary);
+    private CityWeather? Weather(string key) => Data.Cities.TryGetValue(key, out var weather) ? weather : null;
+    private DateTime LocalTime(string timeZoneId) => TimeZoneInfo.ConvertTimeFromUtc(utcNow, TimeZoneCache.Get(timeZoneId));
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        clock = new Timer(Tick, null, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+    }
+
+    private void Tick(object? _)
+    {
+        try
+        {
+            utcNow = DateTime.UtcNow;
+            InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException) {}
+    }
+
+    private static string Format(double? value) => value?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "–";
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            clock?.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+}

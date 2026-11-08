@@ -1,0 +1,15 @@
+
+<label class="settings__toggle">
+    <input type="checkbox" checked="@Value" @onchange="Toggle" />
+    Visa nycklar i klartext
+</label>
+
+@code {
+    [Parameter]
+    public bool Value { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> ValueChanged { get; set; }
+
+    private Task Toggle(ChangeEventArgs e) => ValueChanged.InvokeAsync(e.Value is true);
+}

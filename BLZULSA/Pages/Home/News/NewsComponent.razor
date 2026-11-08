@@ -1,0 +1,38 @@
+﻿@inherits DashboardComponentBase
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+@if (!Options.CurrentValue.News.Enabled)
+{
+    <p class="empty-state">Nyhetsflödet är avstängt under Inställningar.</p>
+}
+else
+{
+<div class="news__head">
+    <span class="eyebrow">@Options.CurrentValue.News.Title</span>
+</div>
+
+@if (!Data.News.IsEmpty)
+{
+    <ol class="news__list">
+        @foreach (var item in Data.News)
+        {
+            <li class="news__item">
+                <div class="news__row">
+                    <h3 class="news__title">@item.Title</h3>
+                    <span class="news__when">@item.When</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(item.Summary))
+                {
+                    <p class="news__summary">@item.Summary</p>
+                }
+            </li>
+        }
+    </ol>
+}
+else
+{
+    <p class="empty-state">Inga nyheter hämtade just nu.</p>
+}
+}

@@ -1,0 +1,26 @@
+@page "/error"
+
+<PageTitle>Något gick fel</PageTitle>
+
+<div class="surface surface--pad" style="max-width: 520px; margin: 12vh auto; text-align: center;">
+    <span class="material-symbols-outlined"
+          style="font-size: 3rem; color: var(--ink-3);" aria-hidden="true">error</span>
+    <h1 class="card__title" style="margin-top: 0.75rem;">Något gick fel</h1>
+    <p class="empty-state">@Message</p>
+    <a href="/" class="chip" style="margin-top: 0.5rem; text-decoration: none;">
+        <span class="material-symbols-outlined" aria-hidden="true">home</span>
+        Till startsidan
+    </a>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "code")]
+    private int? Code { get; set; }
+
+    private string Message => Code switch
+    {
+        404 => "Sidan finns inte.",
+        var c when c is not null => $"Servern svarade med statuskod {c}.",
+        _ => "Ett oväntat fel inträffade.",
+    };
+}

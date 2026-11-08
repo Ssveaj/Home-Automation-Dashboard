@@ -1,0 +1,252 @@
+﻿@page "/smarta-hem"
+@inherits DashboardComponentBase
+@using BLZULSA.Clients
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+@inject ShellyClient Shelly
+@inject LightTruth Truth
+@inject IJSRuntime JS
+
+<PageTitle>Smarta hem</PageTitle>
+
+@if (!ShellyEnabled)
+{
+    <div class="notice">
+        <span class="material-symbols-outlined" aria-hidden="true">key_off</span>
+        <div>
+            <strong>Inte anslutet till Shelly.</strong>
+            Skapa en auth key i Shelly Cloud och fyll i den under
+            <a href="installningar?del=enheter">Inställningar → Enheter</a>,
+            tillsammans med varje enhets ID. Kryssa sedan i <code>Aktivera</code>.
+        </div>
+    </div>
+}
+else if (TotalLights == 0 && TotalSensors == 0)
+{
+    <div class="notice">
+        <span class="material-symbols-outlined" aria-hidden="true">add_home</span>
+        <div>
+            <strong>Inga enheter tillagda än.</strong>
+            Lägg till dina enheter och inomhusgivare under
+            <a href="installningar?del=enheter">Inställningar → Enheter</a>.
+        </div>
+    </div>
+}
+else if (MissingDeviceIds > 0)
+{
+    <div class="notice notice--warn">
+        <span class="material-symbols-outlined" aria-hidden="true">help</span>
+        <div>
+            @MissingDeviceIds av @TotalLights enheter saknar enhets-ID och går inte att styra.
+            Fyll i dem under <a href="installningar?del=enheter">Inställningar → Enheter</a>.
+        </div>
+    </div>
+}
+
+@if (error is not null)
+{
+    <div class="notice notice--error">
+        <span class="material-symbols-outlined" aria-hidden="true">error</span>
+        <div>@error</div>
+    </div>
+}
+
+<div class="rooms">
+    @if (Sensors.Count > 0)
+    {
+        <section>
+            <header class="room__head">
+                <h2 class="room__name">Inomhus</h2>
+            </header>
+
+            <div class="sensors">
+                @foreach (var sensor in Sensors)
+                {
+                    var reading = Reading(sensor.Key);
+                    <div class="surface sensor">
+                        <div class="eyebrow">@sensor.DisplayName</div>
+                        <div class="sensor__readings">
+                            <span class="sensor__value">@Format(reading?.TemperatureC)<span>°C</span></span>
+                            <span class="sensor__value">@Format(reading?.HumidityPercent)<span>%</span></span>
+                            <span class="sensor__value">@(reading?.BatteryPercent.ToString() ?? "–")<span>% bat</span></span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+
+    @foreach (var room in Rooms)
+    {
+        <section>
+            <header class="room__head">
+                @if (!string.IsNullOrWhiteSpace(room.Key))
+                {
+                    <h2 class="room__name">@room.Key</h2>
+                }
+                <span class="eyebrow">@OnCount(room) av @room.Count() tända</span>
+            </header>
+
+            <div class="devices">
+                @foreach (var light in room)
+                {
+                    var state = LightOf(light.Key);
+                    var on = state?.IsOn ?? false;
+                    var usable = ShellyEnabled && !string.IsNullOrWhiteSpace(light.DeviceId);
+
+                    <div class="surface device @(on ? "is-on" : null) @(light.Dimmer ? "device--dimmer" : null)"
+                         data-key="@light.Key"
+                         style="@(light.Dimmer ? NivaStil(state, on) : null)"
+                         @key="light.Key">
+                        <button type="button"
+                                class="device__toggle"
+                                disabled="@(!usable)"
+                                aria-pressed="@on"
+                                title="@Hjalptext(light, on, usable)"
+                                @onclick="() => Toggle(light, !on)">
+                            <span class="material-symbols-outlined device__icon" aria-hidden="true">@light.Icon</span>
+                            <span class="device__meta">
+                                <span class="device__name">@light.Name</span>
+                                <span class="device__state">@Describe(light, state)</span>
+                            </span>
+                        </button>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private string? error;
+    private IEnumerable<IGrouping<string, LightOptions>> Rooms => Options.CurrentValue.Shelly.Lights.GroupBy(l => l.Room?.Trim() ?? string.Empty);
+
+    private bool ShellyEnabled => Options.CurrentValue.Shelly.Enabled;
+    private int TotalLights => Options.CurrentValue.Shelly.Lights.Count;
+    private int TotalSensors => Options.CurrentValue.Shelly.Sensors.Count;
+    private int MissingDeviceIds => Options.CurrentValue.Shelly.Lights.Count(l => string.IsNullOrWhiteSpace(l.DeviceId));
+    private List<ShellyDeviceOptions> Sensors => ShellyEnabled ? Options.CurrentValue.Shelly.Sensors : [];
+    private LightState? LightOf(string key) => Data.Lights.TryGetValue(key, out var state) ? state : null;
+    private int OnCount(IEnumerable<LightOptions> room) => room.Count(l => LightOf(l.Key)?.IsOn == true);
+    private IndoorReading? Reading(string key) => Data.Indoor.TryGetValue(key, out var reading) ? reading : null;
+
+    private Task Toggle(LightOptions light, bool on) => SkickaAsync(light, on, null);
+
+    private DotNetObjectReference<SmartHomeComponent>? sjalv;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        sjalv = DotNetObjectReference.Create(this);
+
+        try
+        {
+            await JS.InvokeVoidAsync("dimmer.init", sjalv);
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    [JSInvokable]
+    public Task Dragit(string key, int niva)
+    {
+        var light = Options.CurrentValue.Shelly.Lights.FirstOrDefault(l => l.Key == key);
+
+        if (light is not { Dimmer: true } || !ShellyEnabled || string.IsNullOrWhiteSpace(light.DeviceId))
+        {
+            return Task.CompletedTask;
+        }
+
+        return InvokeAsync(() => niva < ShellyClient.LagstaNivan
+            ? SkickaAsync(light, false, null)
+            : SkickaAsync(light, true, Math.Min(niva, 100)));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            sjalv?.Dispose();
+            sjalv = null;
+        }
+
+        base.Dispose(disposing);
+    }
+
+    private async Task SkickaAsync(LightOptions light, bool on, int? brightness)
+    {
+        error = null;
+        Visa(Truth.Onskar(light.Key, on, brightness));
+
+        var resultat = await Shelly.SetAsync(light, on, brightness, CancellationToken.None);
+
+        if (resultat.Ok)
+        {
+            return;
+        }
+
+        error = light.Name + ": " + resultat.Error;
+
+        if (Truth.Angrar(light.Key) is { } tillbaka)
+        {
+            Visa(tillbaka);
+        }
+        else
+        {
+            State.Update(snapshot => snapshot with { Lights = snapshot.Lights.Remove(light.Key) });
+        }
+    }
+
+    private void Visa(LightState lage) =>
+        State.Update(snapshot => snapshot with { Lights = snapshot.Lights.SetItem(lage.Key, lage) });
+
+    private static string Hjalptext(LightOptions light, bool on, bool usable) =>
+        !usable ? "Inte kopplad"
+        : "Tryck för att " + (on ? "släcka " : "tända ") + light.Name
+          + (light.Dimmer ? ", dra i sidled för ljusstyrka" : string.Empty);
+
+    private static string NivaStil(LightState? state, bool on) =>
+        "--niva: " + (on ? Niva(state) : 0).ToString(System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    private static int Niva(LightState? state) =>
+        state?.Brightness is { } niva && niva >= ShellyClient.LagstaNivan ? niva : 100;
+
+    private string Describe(LightOptions light, LightState? state)
+    {
+        if (!ShellyEnabled)
+        {
+            return "Ej ansluten";
+        }
+
+        if (string.IsNullOrWhiteSpace(light.DeviceId))
+        {
+            return "Inget enhets-ID";
+        }
+
+        if (state is null)
+        {
+            return "Okänt läge";
+        }
+
+        if (!state.Online)
+        {
+            return "Offline";
+        }
+
+        if (!state.IsOn)
+        {
+            return "Av";
+        }
+
+        return light.Dimmer && state.Brightness is { } niva ? "På · " + niva + " %" : "På";
+    }
+
+    private static string Format(decimal? value) => value?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "–";
+    private static string Format(double? value) =>  value?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "–";
+}

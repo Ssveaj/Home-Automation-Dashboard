@@ -1,0 +1,48 @@
+﻿@using System.Globalization
+@implements IDisposable
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+<div class="hero__row">
+    <div class="hero__text">
+        <div class="clock__time">
+            @now.ToString("HH:mm", SwedishCulture)<span class="clock__seconds">:@now.ToString("ss", SwedishCulture)</span>
+        </div>
+
+        <div class="clock__date">@DayName @now.Day @MonthName</div>
+
+        <NameDayComponent />
+    </div>
+
+    @if (Options.CurrentValue.Clock.ShowAnalog)
+    {
+        <BLZULSA.Pages.Home.MainTime.AnalogClock Time="now" />
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo SwedishCulture = new("sv-SE");
+    private DateTime now = SwedishTime.Now;
+    private Timer? clock;
+    private string MonthName => SwedishCulture.DateTimeFormat.GetMonthName(now.Month);
+    private string DayName => Capitalize(now.ToString("dddd", SwedishCulture));
+
+    protected override void OnInitialized()
+    {
+        clock = new Timer(Tick, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+    }
+
+    private void Tick(object? _)
+    {
+        try
+        {
+            now = SwedishTime.Now;
+            InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException) {}
+    }
+
+    private static string Capitalize(string value) => value.Length == 0 ? value : char.ToUpper(value[0], SwedishCulture) + value[1..];
+    public void Dispose() => clock?.Dispose();
+}

@@ -1,0 +1,47 @@
+
+<div class="search__box">
+    <span class="material-symbols-outlined" aria-hidden="true">search</span>
+
+    <input type="text" placeholder="@Placeholder" aria-label="@Label"
+           value="@Value" @oninput="Typed" @onkeydown="KeyDown" />
+
+    @if (!string.IsNullOrEmpty(Value))
+    {
+        <button type="button" class="search__clear" title="Rensa sökningen"
+                aria-label="Rensa sökningen" @onclick="Clear">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+    }
+
+    <button type="button" class="btn btn--primary" @onclick="OnSearch" disabled="@Busy">
+        @ButtonText
+    </button>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = string.Empty;
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+    [Parameter, EditorRequired]
+    public EventCallback OnSearch { get; set; }
+    [Parameter]
+    public EventCallback OnClear { get; set; }
+    [Parameter]
+    public bool Busy { get; set; }
+    [Parameter]
+    public string Placeholder { get; set; } = "Sök";
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = "Sök";
+    [Parameter]
+    public string ButtonText { get; set; } = "Sök";
+
+    private Task Typed(ChangeEventArgs e) => ValueChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty);
+    private Task KeyDown(KeyboardEventArgs e) => e.Key == "Enter" ? OnSearch.InvokeAsync() : Task.CompletedTask;
+
+    private async Task Clear()
+    {
+        await ValueChanged.InvokeAsync(string.Empty);
+        await OnClear.InvokeAsync();
+    }
+}

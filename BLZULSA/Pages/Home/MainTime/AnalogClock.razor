@@ -1,0 +1,97 @@
+@using System.Globalization
+@using System.Text
+
+<svg class="dial" viewBox="0 0 200 200" role="img"
+     aria-label="@Time.ToString(@"HH\:mm", CultureInfo.InvariantCulture)">
+    @((MarkupString)Build())
+</svg>
+
+@code {
+    [Parameter, EditorRequired]
+    public DateTime Time { get; set; }
+    private const double Center = 100;
+    private const string Ink = "rgba(255,255,255,0.92)";
+    private const string Faint = "rgba(255,255,255,0.30)";
+    private const string Accent = "#5B8CFF";
+
+    private string Build()
+    {
+        var svg = new StringBuilder();
+
+        AppendDefs(svg);
+        AppendFace(svg);
+        AppendTicks(svg);
+        AppendNumerals(svg);
+        AppendHands(svg);
+
+        return svg.ToString();
+    }
+
+    private static void AppendDefs(StringBuilder svg) =>
+        svg.Append("""
+            <defs>
+              <radialGradient id="dialFace" cx="50%" cy="38%" r="70%">
+                <stop offset="0%" stop-color="#161d2b"/>
+                <stop offset="70%" stop-color="#0c1119"/>
+                <stop offset="100%" stop-color="#070a10"/>
+              </radialGradient>
+              <filter id="dialGlow" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur stdDeviation="5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            """);
+
+    private static void AppendFace(StringBuilder svg)
+    {
+        svg.Append(CultureInfo.InvariantCulture, $"""<circle cx="100" cy="100" r="94" fill="none" stroke="{Accent}" stroke-width="1.6" opacity="0.85" filter="url(#dialGlow)"/>""");
+        svg.Append("""<circle cx="100" cy="100" r="90" fill="url(#dialFace)"/>""");
+    }
+
+    private static void AppendTicks(StringBuilder svg)
+    {
+        for (var i = 0; i < 60; i++)
+        {
+            var major = i % 5 == 0;
+            var outer = 82.0;
+            var inner = major ? 71.0 : 77.0;
+            var angle = i * 6 * Math.PI / 180;
+            var sin = Math.Sin(angle);
+            var cos = Math.Cos(angle);
+
+            svg.Append(CultureInfo.InvariantCulture, $"""<line x1="{Center + outer * sin:0.##}" y1="{Center - outer * cos:0.##}" x2="{Center + inner * sin:0.##}" y2="{Center - inner * cos:0.##}" stroke="{(major ? Ink : Faint)}" stroke-width="{(major ? 2.2 : 1)}" stroke-linecap="round"/>""");
+        }
+    }
+
+    private static void AppendNumerals(StringBuilder svg)
+    {
+        (int Hour, double X, double Y)[] numerals =
+        [
+            (12, Center, 44),
+            (3, 158, Center + 6),
+            (6, Center, 162),
+            (9, 42, Center + 6),
+        ];
+
+        foreach (var (hour, x, y) in numerals)
+        {
+            svg.Append(CultureInfo.InvariantCulture, $"""<text x="{x:0.##}" y="{y:0.##}" text-anchor="middle" dominant-baseline="middle" fill="{Ink}" font-size="15" font-weight="400" font-family="Inter, system-ui, sans-serif">{hour}</text>""");
+        }
+    }
+
+    private void AppendHands(StringBuilder svg)
+    {
+        var hour = ((Time.Hour % 12) + (Time.Minute / 60.0)) * 30;
+        var minute = (Time.Minute + (Time.Second / 60.0)) * 6;
+        var second = Time.Second * 6;
+
+        AppendHand(svg, hour, 48, 4.4, Ink);
+        AppendHand(svg, minute, 70, 3, Ink);
+
+        svg.Append(CultureInfo.InvariantCulture, $"""<g transform="rotate({second:0.##} 100 100)"><line x1="100" y1="114" x2="100" y2="26" stroke="{Accent}" stroke-width="1.4" stroke-linecap="round"/></g>""");
+
+        svg.Append(CultureInfo.InvariantCulture, $"""<circle cx="100" cy="100" r="4" fill="{Accent}"/><circle cx="100" cy="100" r="1.6" fill="#070a10"/>""");
+    }
+
+    private static void AppendHand(StringBuilder svg, double angle, double length, double width, string colour) => svg.Append(CultureInfo.InvariantCulture, $"""<g transform="rotate({angle:0.##} 100 100)"><line x1="100" y1="106" x2="100" y2="{Center - length:0.##}" stroke="{colour}" stroke-width="{width:0.##}" stroke-linecap="round"/></g>""");
+}

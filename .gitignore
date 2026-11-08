@@ -1,0 +1,16 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+publish/
+*.pubxml.user
+
+BLZULSA/data/
+deploy/
+artifacts/
+*.bak
+*.trasig
+.env
+*.pem
+*.key
+appsettings.*.local.json

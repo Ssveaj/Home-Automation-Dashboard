@@ -1,0 +1,151 @@
+@using System.Globalization
+@using System.Net
+@using System.Text
+
+<figure class="price-chart">
+    <svg viewBox="0 0 @N(ChartWidth) @N(ChartHeight)" role="img"
+         aria-label="Elpris per timme i öre per kilowattimme"
+         preserveAspectRatio="none" class="price-chart-svg">
+        @((MarkupString)BuildSvgContent())
+    </svg>
+
+    <figcaption class="price-chart-legend">
+        <span class="legend-item">
+            <span class="legend-swatch" style="background:@CurrentColor"></span>Nu
+        </span>
+        <span class="legend-item">
+            <span class="legend-swatch" style="background:@CheapestColor"></span>Billigast
+        </span>
+        <span class="legend-unit">öre/kWh</span>
+    </figcaption>
+</figure>
+
+@code {
+    [Parameter, EditorRequired]
+    public required ElectricityPrices Prices { get; set; }
+
+    private const string NormalColor = "#5F7DD6";
+    private const string CurrentColor = "#BE8A22";
+    private const string CheapestColor = "#33A471";
+    private const string PrimaryInk = "rgba(255,255,255,0.95)";
+    private const string MutedInk = "rgba(255,255,255,0.55)";
+    private const string GridInk = "rgba(255,255,255,0.12)";
+    private const string AxisInk = "rgba(255,255,255,0.3)";
+    private const double ChartWidth = 960;
+    private const double ChartHeight = 260;
+    private const double PadLeft = 44;
+    private const double PadRight = 12;
+    private const double PadTop = 26;
+    private const double PadBottom = 26;
+    private const double BarGap = 2;
+    private const double CornerRadius = 4;
+    private double BaselineY => ChartHeight - PadBottom;
+    private double PlotHeight => ChartHeight - PadTop - PadBottom;
+    private double PlotWidth => ChartWidth - PadLeft - PadRight;
+    private decimal Ceiling => Prices.Highest <= 0 ? 1 : Prices.Highest * 1.15m;
+
+    private string BuildSvgContent()
+    {
+        var svg = new StringBuilder();
+
+        AppendGrid(svg);
+        AppendNowMarker(svg);
+        AppendBars(svg);
+        AppendLine(svg, PadLeft, BaselineY, ChartWidth - PadRight, BaselineY, AxisInk, 1);
+
+        return svg.ToString();
+    }
+
+    private void AppendGrid(StringBuilder svg)
+    {
+        for (var i = 0; i <= 2; i++)
+        {
+            var value = Ceiling * i / 2;
+            var y = BaselineY - ((double)(value / Ceiling) * PlotHeight);
+
+            AppendLine(svg, PadLeft, y, ChartWidth - PadRight, y, GridInk, 1);
+            AppendText(svg, PadLeft - 8, y + 4, "end", MutedInk, 11, false, Ore(value));
+        }
+    }
+
+    private void AppendNowMarker(StringBuilder svg)
+    {
+        var hours = Prices.Hours;
+        var current = Prices.Current;
+
+        if (hours.IsEmpty || current is null)
+        {
+            return;
+        }
+
+        var index = hours.IndexOf(current);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var slot = PlotWidth / hours.Length;
+        var centerX = PadLeft + (index * slot) + (slot / 2);
+        AppendLine(svg, centerX, PadTop - 6, centerX, BaselineY, CurrentColor, 1);
+    }
+
+    private void AppendBars(StringBuilder svg)
+    {
+        var hours = Prices.Hours;
+        if (hours.IsEmpty)
+        {
+            return;
+        }
+
+        var slot = PlotWidth / hours.Length;
+        var width = Math.Max(1, slot - BarGap);
+        var current = Prices.Current;
+        var cheapest = Prices.Cheapest;
+        var highest = hours.MaxBy(h => h.SekPerKwh);
+
+        for (var index = 0; index < hours.Length; index++)
+        {
+            var hour = hours[index];
+            var x = PadLeft + (index * slot) + (BarGap / 2);
+            var height = Ceiling <= 0 ? 0 : (double)(hour.SekPerKwh / Ceiling) * PlotHeight;
+            var top = BaselineY - height;
+            var centerX = x + (width / 2);
+
+            var isCurrent = current is not null && hour.Start == current.Start;
+            var isCheapest = cheapest is not null && hour.Start == cheapest.Start;
+            var isHighest = highest is not null && hour.Start == highest.Start;
+
+            var fill = isCurrent ? CurrentColor : isCheapest ? CheapestColor : NormalColor;
+            var tooltip = Encode($"kl {hour.Start.ToString("HH", CultureInfo.InvariantCulture)}–" + $"{hour.End.ToString("HH", CultureInfo.InvariantCulture)}: " + $"{Ore(hour.SekPerKwh)} öre/kWh");
+            svg.Append(CultureInfo.InvariantCulture, $"""<path d="{BarPath(x, top, width, height)}" fill="{fill}" class="price-bar"><title>{tooltip}</title></path>""");
+
+            if (isCurrent || isCheapest || (isHighest && !isCurrent && !isCheapest))
+            {
+                AppendText(svg, centerX, top - 6, "middle", PrimaryInk, 12, true, Ore(hour.SekPerKwh));
+            }
+
+            if (index % 3 == 0)
+            {
+                AppendText(svg, centerX, ChartHeight - 8, "middle", MutedInk, 11, false, hour.Start.ToString("HH", CultureInfo.InvariantCulture));
+            }
+        }
+    }
+
+    private static void AppendLine(StringBuilder svg, double x1, double y1, double x2, double y2, string stroke, double width) => svg.Append(CultureInfo.InvariantCulture,
+                                                                  $"""<line x1="{N(x1)}" y1="{N(y1)}" x2="{N(x2)}" y2="{N(y2)}" stroke="{stroke}" stroke-width="{N(width)}" />""");
+
+    private static void AppendText(StringBuilder svg, double x, double y, string anchor, string fill, int size, bool bold, string content) => svg.Append(CultureInfo.InvariantCulture,
+                                                                 $"""<text x="{N(x)}" y="{N(y)}" text-anchor="{anchor}" fill="{fill}" font-size="{size}"{(bold ? " font-weight=\"600\"" : string.Empty)}>{Encode(content)}</text>""");
+
+    private static string BarPath(double x, double y, double w, double h)
+    {
+        var r = Math.Min(CornerRadius, Math.Min(w / 2, h));
+        var bottom = y + h;
+
+        return string.Create(CultureInfo.InvariantCulture, $"M {x:0.##} {bottom:0.##} L {x:0.##} {y + r:0.##} Q {x:0.##} {y:0.##} {x + r:0.##} {y:0.##} " + $"L {x + w - r:0.##} {y:0.##} Q {x + w:0.##} {y:0.##} {x + w:0.##} {y + r:0.##} " + $"L {x + w:0.##} {bottom:0.##} Z");
+    }
+
+    private static string Ore(decimal sekPerKwh) => Math.Round(sekPerKwh * 100, 0).ToString("0", CultureInfo.InvariantCulture);
+    private static string N(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string Encode(string value) => WebUtility.HtmlEncode(value);
+}

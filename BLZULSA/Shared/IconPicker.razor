@@ -1,0 +1,42 @@
+﻿<div class="iconpick">
+    <button type="button" class="iconpick__current" @onclick="Toggle"
+            aria-expanded="@open" aria-label="Välj ikon">
+        <span class="material-symbols-outlined" aria-hidden="true">@Current</span>
+        <span class="iconpick__name">@Current</span>
+        <span class="material-symbols-outlined iconpick__caret" aria-hidden="true">
+            @(open ? "expand_less" : "expand_more")
+        </span>
+    </button>
+
+    @if (open)
+    {
+        <div class="iconpick__panel">
+            @foreach (var icon in Icons)
+            {
+                <button type="button" class="iconpick__option @(icon == Current ? "is-active" : null)"
+                        title="@icon" @onclick="() => Choose(icon)">
+                    <span class="material-symbols-outlined" aria-hidden="true">@icon</span>
+                    <span class="iconpick__label">@icon</span>
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter, EditorRequired] public IEnumerable<string> Icons { get; set; } = [];
+
+    private bool open;
+
+    private string Current => string.IsNullOrWhiteSpace(Value) ? "lightbulb" : Value;
+
+    private void Toggle() => open = !open;
+
+    private async Task Choose(string icon)
+    {
+        open = false;
+        await ValueChanged.InvokeAsync(icon);
+    }
+}

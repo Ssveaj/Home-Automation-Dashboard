@@ -1,0 +1,1792 @@
+﻿@page "/installningar"
+@using System.Globalization
+@using BLZULSA.Configuration
+@inject SettingsStore Store
+@inject RefreshTrigger Refresh
+@inject NavigationManager Navigation
+@inject BLZULSA.Clients.OpenWeatherClient Weather
+@inject DashboardState State
+@inject BLZULSA.Clients.ShellyClient Shelly
+@inject BLZULSA.Clients.FinnhubClient Finnhub
+@inject BLZULSA.Clients.ResRobotClient Transit
+@inject BLZULSA.Clients.GasolinePriceClient Fuel
+@inject IJSRuntime JS
+@inject HealthLog Health
+@inject KioskPause Kiosk
+
+<PageTitle>Inställningar</PageTitle>
+<SettingsGate @ref="gate">
+<div class="settings">
+    <div class="settings__bar surface">
+        <div>
+            <div class="settings__file-label">Sparas i</div>
+            <code class="settings__file">@Store.FilePath</code>
+        </div>
+        <div class="settings__actions">
+            @if (status is not null)
+            {
+                <span class="settings__status @(failed ? "is-error" : "is-ok")">@status</span>
+            }
+            <button type="button" class="btn btn--ghost" @onclick="Reset" disabled="@saving">Återställ</button>
+            <button type="button" class="btn btn--primary" @onclick="Save" disabled="@saving">
+                @(saving ? "Sparar…" : "Spara")
+            </button>
+            @if (confirmLeave)
+            {
+                <span class="settings__leave">
+                    <span>Lämna tavlan i @KioskPause.Duration.TotalMinutes.ToString("0") minuter?</span>
+                    <button type="button" class="btn btn--ghost" @onclick="() => confirmLeave = false">Avbryt</button>
+                    <button type="button" class="btn btn--primary" @onclick="LeaveKiosk">Lämna</button>
+                </span>
+            }
+            else
+            {
+                <button type="button" class="btn btn--ghost" title="Pausar tavlan så att skrivbordet och terminalen går att nå"
+                        @onclick="() => confirmLeave = true">
+                    <span class="material-symbols-outlined" aria-hidden="true">logout</span>
+                    Lämna tavlan
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="settings__body">
+        <nav class="vtabs" aria-label="Inställningssektioner">
+            @foreach (var tab in Sections)
+            {
+                <button type="button"
+                        class="vtab @(section == tab.Id ? "active" : null)"
+                        aria-current="@(section == tab.Id ? "page" : null)"
+                        @onclick="() => GoTo(tab.Id)">
+                    <span class="material-symbols-outlined vtab__icon" aria-hidden="true">@tab.Icon</span>
+                    <span class="vtab__label">@tab.Label</span>
+                    @if (tab.Count(draft) is { } count)
+                    {
+                        <span class="vtab__count">@count</span>
+                    }
+                </button>
+            }
+        </nav>
+
+        <div class="settings__panel">
+            @if (section == Section.World)
+            {
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Världstider</h2>
+                        <span class="eyebrow">@draft.OpenWeather.Cities.Count platser</span>
+                    </header>
+
+                    <p class="settings__help">
+                        Sök på ortnamn så fylls koordinater och tidszon i automatiskt. Staden med
+                        <strong>Huvud</strong> ikryssad hamnar i det stora väderkortet.
+                    </p>
+
+                    <div class="search">
+                        <SearchBox Placeholder="Sök stad, t.ex. Stockholm"
+                                   Label="Sök stad"
+                                   @bind-Value="searchTerm"
+                                   OnSearch="SearchPlaces"
+                                   OnClear="ClearPlaceSearch"
+                                   Busy="searching"
+                                   ButtonText='@(searching ? "Söker…" : "Sök")' />
+
+                        @if (searchMessage is not null)
+                        {
+                            <p class="search__message">@searchMessage</p>
+                        }
+
+                        @if (searchResults.Count > 0)
+                        {
+                            <ul class="search__results">
+                                @foreach (var place in searchResults)
+                                {
+                                    <li>
+                                        <button type="button" class="search__hit" @onclick="() => AddPlace(place)">
+                                            <span class="search__hit-main">
+                                                <span class="search__hit-name">@place.Label</span>
+                                                @if (place.Detail is { } detail)
+                                                {
+                                                    <span class="search__hit-detail">@detail</span>
+                                                }
+                                            </span>
+                                            <span class="search__hit-zone">
+                                                @place.TimeZoneId · @LocalTime(place.TimeZoneId)
+                                            </span>
+                                            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                                        </button>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+
+                    <div class="rows">
+                        @foreach (var city in draft.OpenWeather.Cities)
+                        {
+                            <div class="row" @key="city">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="city.DisplayName" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Tidszon</span>
+                                    <select @bind="city.TimeZone">
+                                        @foreach (var zone in ZonesFor(city.TimeZone))
+                                        {
+                                            <option value="@zone.Id">@zone.Label</option>
+                                        }
+                                    </select>
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Vädersökning</span>
+                                    <ClearableInput @bind-Value="city.Query" Placeholder="q=Orebro,se" />
+                                </label>
+                                <label class="field field--check">
+                                    <span>Huvud</span>
+                                    <input type="radio" name="primary-city"
+                                           checked="@city.IsPrimary"
+                                           @onchange="() => SetPrimary(city)" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @city.DisplayName"
+                                        @onclick="() => draft.OpenWeather.Cities.Remove(city)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Väderkälla</h2>
+                    </header>
+
+                    <p class="settings__help">
+                        Nyckeln hämtas gratis på <code>openweathermap.org</code> och gäller alla platser ovan.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>OpenWeather API-nyckel</span>
+                                <ClearableInput Type="@KeyInputType" @bind-Value="draft.OpenWeather.ApiKey" />
+                            </label>
+                        </div>
+                    </div>
+
+                    <ShowKeysToggle @bind-Value="showKeys" />
+                </section>
+            }
+
+            @if (section == Section.Devices)
+            {
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Anslutning</h2>
+                        <label class="field field--check">
+                            <span>Aktivera</span>
+                            <input type="checkbox" @bind="draft.Shelly.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Nyckeln hämtas i <code>Shelly Cloud</code> under Användarinställningar →
+                        Auktoriseringsinformation. Shelly Cloud har <em>en</em> nyckel per konto — den
+                        gäller alla dina enheter, så det räcker med fältet nedan.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Kontonyckel</span>
+                                <ClearableInput Type="@KeyInputType" @bind-Value="draft.Shelly.AuthKey" />
+                            </label>
+                        </div>
+                    </div>
+
+                    <ShowKeysToggle @bind-Value="showKeys" />
+                    <div class="settings__actions" style="margin-top: 1rem; justify-content: flex-start;">
+                        <button type="button" class="btn btn--ghost" @onclick="TestDevices" disabled="@testing">
+                            <span class="material-symbols-outlined" aria-hidden="true">wifi_tethering</span>
+                            @(testing ? "Testar…" : "Testa anslutning")
+                        </button>
+                        <span class="settings__status">Sparar inte — provar bara nycklarna som står här.</span>
+                    </div>
+
+                    @if (testResults.Count > 0)
+                    {
+                        <ul class="probe">
+                            @foreach (var probe in testResults)
+                            {
+                                <li class="probe__row @(probe.Ok ? "is-ok" : "is-error")">
+                                    <span class="material-symbols-outlined" aria-hidden="true">
+                                        @(probe.Ok ? "check_circle" : "cancel")
+                                    </span>
+                                    <span class="probe__name">@probe.Name</span>
+                                    <span class="probe__detail">@(probe.Ok ? "Svarar" : probe.Error)</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Enheter</h2>
+                        <span class="eyebrow">@draft.Shelly.Lights.Count enheter</span>
+                    </header>
+
+                    <p class="settings__help">
+                        <strong>Rum</strong> blir rubriken på fliken Smarta hem. <strong>Enhets-ID</strong> är
+                        Shellys <code>device id</code>, tolv tecken. <strong>Ikon</strong> väljs i listan.
+                    </p>
+
+                    <div class="rows">
+                        @foreach (var light in draft.Shelly.Lights)
+                        {
+                            <div class="row" @key="light">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="light.Name" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Rum</span>
+                                    <ClearableInput @bind-Value="light.Room" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Enhets-ID</span>
+                                    <ClearableInput @bind-Value="light.DeviceId" Placeholder="a1b2c3d4e5f6" />
+                                </label>
+                                <label class="field field--narrow">
+                                    <span>Kanal</span>
+                                    <input type="number" min="0" max="7" @bind="light.Channel" />
+                                </label>
+                                <label class="field field--check">
+                                    <span>Dimmer</span>
+                                    <input type="checkbox" @bind="light.Dimmer" />
+                                </label>
+                                <label class="field field--icon">
+                                    <span>Ikon</span>
+                                    <IconPicker @bind-Value="light.Icon" Icons="IconsFor(light.Icon)" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @light.Name"
+                                        @onclick="() => draft.Shelly.Lights.Remove(light)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                    <datalist id="rooms">
+                        @foreach (var room in knownRooms)
+                        {
+                            <option value="@room" />
+                        }
+                    </datalist>
+
+                    <button type="button" class="btn btn--ghost" @onclick="AddLight">
+                        <span class="material-symbols-outlined" aria-hidden="true">add</span> Lägg till enhet
+                    </button>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Inomhusgivare</h2>
+                        <span class="eyebrow">@draft.Shelly.Sensors.Count enheter</span>
+                    </header>
+
+                    <div class="rows">
+                        @foreach (var sensor in draft.Shelly.Sensors)
+                        {
+                            <div class="row" @key="sensor">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="sensor.DisplayName" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Enhets-ID</span>
+                                    <ClearableInput @bind-Value="sensor.DeviceId" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @sensor.DisplayName"
+                                        @onclick="() => draft.Shelly.Sensors.Remove(sensor)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    <button type="button" class="btn btn--ghost" @onclick="AddSensor">
+                        <span class="material-symbols-outlined" aria-hidden="true">add</span> Lägg till givare
+                    </button>
+                </section>
+            }
+
+            @if (section == Section.Economy)
+            {
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Elpris</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.ElectricityPrice.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Spotpris per timme från <code>elprisetjustnu.se</code>. Öppet API utan nyckel.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Elprisområde</span>
+                                <select @bind="draft.ElectricityPrice.Zone">
+                                    <option value="SE1">SE1 — Luleå</option>
+                                    <option value="SE2">SE2 — Sundsvall</option>
+                                    <option value="SE3">SE3 — Stockholm / Örebro</option>
+                                    <option value="SE4">SE4 — Malmö</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Drivmedel</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.GasolinePrice.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Öppet API utan nyckel. Välj ditt län, och sedan kommuner för att slippa priser
+                        från stationer åtta mil bort — <strong>inga val = hela länet</strong>.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Län</span>
+                                <select value="@SelectedCounty" @onchange="ChooseCounty">
+                                    <option value="">Egen adress</option>
+                                    @foreach (var county in FuelCounties.All)
+                                    {
+                                        <option value="@county.Slug">@county.Name</option>
+                                    }
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+
+                    @if (countyLoading)
+                    {
+                        <p class="search__message">Hämtar kommuner i valt län…</p>
+                    }
+                    else if (AvailableMunicipalities.Count > 0)
+                    {
+                        <div class="picks">
+                            @foreach (var place in AvailableMunicipalities)
+                            {
+                                var chosen = draft.GasolinePrice.Municipalities.Contains(place, StringComparer.OrdinalIgnoreCase);
+                                <button type="button"
+                                        class="pick @(chosen ? "active" : null)"
+                                        aria-pressed="@chosen"
+                                        @onclick="() => ToggleMunicipality(place)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">
+                                        @(chosen ? "check_circle" : "circle")
+                                    </span>
+                                    @place
+                                </button>
+                            }
+                        </div>
+
+                        @if (draft.GasolinePrice.Municipalities.Count > 0)
+                        {
+                            <button type="button" class="btn btn--ghost"
+                                    @onclick="() => draft.GasolinePrice.Municipalities.Clear()">
+                                Rensa val
+                            </button>
+                        }
+                    }
+                    else
+                    {
+                        <p class="empty-state">
+                            Kommunerna dyker upp här när priserna hämtats första gången.
+                        </p>
+                    }
+
+                    <div class="rows" style="margin-top: 1rem;">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Adress</span>
+                                <ClearableInput @bind-Value="draft.GasolinePrice.Url" />
+                            </label>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Räntor</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.InterestRates.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Serier från Riksbankens SWEA-API. Serie-id:n finns på
+                        <code>api.riksbank.se/swea/v1/Series</code> — t.ex. <code>SECBREPOEFF</code>
+                        (styrränta) eller <code>SEGVB10YC</code> (10-årig statsobligation).
+                    </p>
+
+                    <div class="rows">
+                        @foreach (var rate in draft.InterestRates.Series)
+                        {
+                            <div class="row" @key="rate">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="rate.Label" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Serie-id</span>
+                                    <ClearableInput @bind-Value="rate.SeriesId" Placeholder="SECBREPOEFF" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @rate.Label"
+                                        @onclick="() => draft.InterestRates.Series.Remove(rate)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    <button type="button" class="btn btn--ghost" @onclick="AddRate">
+                        <span class="material-symbols-outlined" aria-hidden="true">add</span> Lägg till ränta
+                    </button>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Aktier</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.Stocks.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Nyckeln hämtas gratis på <code>finnhub.io</code>. Kurserna visas i samma kort
+                        som räntorna. Sök på bolagsnamn så fylls symbolen i automatiskt.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Finnhub API-nyckel</span>
+                                <ClearableInput Type="@KeyInputType" @bind-Value="draft.Stocks.ApiKey" />
+                            </label>
+                        </div>
+                    </div>
+
+                    <ShowKeysToggle @bind-Value="showKeys" />
+                    <div class="search">
+                        <SearchBox Placeholder="Sök bolag, t.ex. Volvo"
+                                   Label="Sök bolag"
+                                   @bind-Value="stockTerm"
+                                   OnSearch="SearchStocks"
+                                   OnClear="ClearStockSearch"
+                                   Busy="stockSearching"
+                                   ButtonText='@(stockSearching ? "Söker…" : "Sök")' />
+
+                        @if (stockMessage is not null)
+                        {
+                            <p class="search__message">@stockMessage</p>
+                        }
+
+                        @if (stockResults.Count > 0)
+                        {
+                            <ul class="search__results">
+                                @foreach (var hit in stockResults)
+                                {
+                                    <li>
+                                        <button type="button" class="search__hit" @onclick="() => AddStock(hit)">
+                                            <span class="search__hit-main">
+                                                <span class="search__hit-name">@hit.Label</span>
+                                                <span class="search__hit-detail">@hit.Symbol</span>
+                                            </span>
+                                            <span class="search__hit-zone">@(hit.Exchange ?? "USA")</span>
+                                            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                                        </button>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+
+                    <div class="rows">
+                        @foreach (var stock in draft.Stocks.Symbols)
+                        {
+                            <div class="row" @key="stock">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="stock.Label" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Symbol</span>
+                                    <ClearableInput @bind-Value="stock.Symbol" Placeholder="VOLV-B.ST" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @stock.Label"
+                                        @onclick="() => draft.Stocks.Symbols.Remove(stock)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    @if (draft.Stocks.Symbols.Count == 0)
+                    {
+                        <p class="empty-state">Inga bolag valda än — sök ovan.</p>
+                    }
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Ekonominyheter</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.FinanceNews.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        RSS-flöde som visas under drivmedelskortet. Vilket flöde som helst fungerar.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Flöde (RSS)</span>
+                                <ClearableInput @bind-Value="draft.FinanceNews.Url" />
+                            </label>
+                            <label class="field field--grow">
+                                <span>Rubrik</span>
+                                <ClearableInput @bind-Value="draft.FinanceNews.Title" />
+                            </label>
+                            <label class="field field--narrow">
+                                <span>Antal</span>
+                                <input type="number" min="1" max="20" @bind="draft.FinanceNews.MaxItems" />
+                            </label>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @if (section == Section.Planning)
+            {
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Kalender</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.Calendar.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Klistra in en <strong>ICS-adress</strong>. I Google Kalender finns den under
+                        kalenderns inställningar som <em>Hemlig adress i iCal-format</em>. I Outlook
+                        under <em>Publicera kalender</em>. Adressen kräver ingen inloggning och
+                        slutar aldrig gälla, därför behöver skärmen aldrig kopplas om.
+                        <strong>Den som har adressen kan läsa kalendern</strong>.
+                    </p>
+
+                    <div class="rows">
+                        @foreach (var feed in draft.Calendar.Feeds)
+                        {
+                            <div class="row" @key="feed">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="feed.Name" Placeholder="Familjen" />
+                                </label>
+                                <label class="field field--grow2">
+                                    <span>ICS-adress</span>
+                                    <ClearableInput Type="@KeyInputType" @bind-Value="feed.Url" Placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @feed.Name"
+                                        @onclick="() => draft.Calendar.Feeds.Remove(feed)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+
+                        <div class="row">
+                            <label class="field field--narrow">
+                                <span>Dagar framåt</span>
+                                <input type="number" min="1" max="60" @bind="draft.Calendar.DaysAhead" />
+                            </label>
+                            <label class="field field--narrow">
+                                <span>Max antal</span>
+                                <input type="number" min="1" max="60" @bind="draft.Calendar.MaxItems" />
+                            </label>
+                        </div>
+                    </div>
+
+                    <ShowKeysToggle @bind-Value="showKeys" />
+
+                    <button type="button" class="btn btn--ghost" @onclick="AddCalendarFeed">
+                        <span class="material-symbols-outlined" aria-hidden="true">add</span> Lägg till kalender
+                    </button>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Bussavgångar</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.Transit.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Nyckeln hämtas gratis på <code>trafiklab.se</code> Sök sedan på hållplatsnamn så
+                        fylls id:t i automatiskt.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>ResRobot API-nyckel</span>
+                                <ClearableInput Type="@KeyInputType" @bind-Value="draft.Transit.ApiKey" />
+                            </label>
+                            <label class="field field--narrow">
+                                <span>Avgångar</span>
+                                <input type="number" min="1" max="20" @bind="draft.Transit.MaxDepartures" />
+                            </label>
+                            <label class="field field--narrow">
+                                <span>Minuter framåt</span>
+                                <input type="number" min="15" max="720" @bind="draft.Transit.WindowMinutes" />
+                            </label>
+                        </div>
+                    </div>
+
+                    <ShowKeysToggle @bind-Value="showKeys" />
+
+                    <div class="search">
+                        <SearchBox Placeholder="Sök hållplats, t.ex. Stockholm Södermalm"
+                                   Label="Sök hållplats"
+                                   @bind-Value="stopTerm"
+                                   OnSearch="SearchStops"
+                                   OnClear="ClearStopSearch"
+                                   Busy="stopSearching"
+                                   ButtonText='@(stopSearching ? "Söker…" : "Sök")' />
+
+                        @if (stopMessage is not null)
+                        {
+                            <p class="search__message">@stopMessage</p>
+                        }
+
+                        @if (stopResults.Count > 0)
+                        {
+                            <ul class="search__results">
+                                @foreach (var hit in stopResults)
+                                {
+                                    <li>
+                                        <button type="button" class="search__hit" @onclick="() => AddStop(hit)">
+                                            <span class="search__hit-main">
+                                                <span class="search__hit-name">@hit.Name</span>
+                                                @if (hit.Area is { } area)
+                                                {
+                                                    <span class="search__hit-detail">@area</span>
+                                                }
+                                            </span>
+                                            <span class="search__hit-zone">@hit.StopId</span>
+                                            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                                        </button>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+
+                    <div class="rows">
+                        @foreach (var stop in draft.Transit.Stops)
+                        {
+                            <div class="row" @key="stop">
+                                <label class="field field--grow">
+                                    <span>Namn</span>
+                                    <ClearableInput @bind-Value="stop.Name" />
+                                </label>
+                                <label class="field field--grow">
+                                    <span>Hållplats-id</span>
+                                    <ClearableInput @bind-Value="stop.StopId" Placeholder="740000201" />
+                                </label>
+                                <button type="button" class="btn btn--icon" title="Ta bort @stop.Name"
+                                        @onclick="() => draft.Transit.Stops.Remove(stop)">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    @if (draft.Transit.Stops.Count == 0)
+                    {
+                        <p class="empty-state">Inga hållplatser valda än — sök ovan.</p>
+                    }
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Skollunch</h2>
+                        <label class="field field--check">
+                            <span>Visa</span>
+                            <input type="checkbox" @bind="draft.SchoolMenu.Enabled" />
+                        </label>
+                    </header>
+
+                    <p class="settings__help">
+                        Matsedeln läses från den publika sidan på <code>skolmaten.se</code>.
+                        <strong>Adressnamnet</strong> står sist i skolans webbadress — i
+                        <code>skolmaten.se/almby-skola</code> är det <code>almby-skola</code>.
+                        Du kan också klistra in hela adressen. Den kortas åt dig.
+                    </p>
+
+                    <div class="rows">
+                        @foreach (var school in draft.SchoolMenu.Schools)
+                        {
+                            <div class="row row--stack" @key="school">
+                                <div class="row">
+                                    <label class="field field--grow">
+                                        <span>Skolans namn</span>
+                                        <ClearableInput @bind-Value="school.Name" Placeholder="Almby skola" />
+                                    </label>
+                                    <label class="field field--grow">
+                                        <span>Adressnamn på skolmaten.se</span>
+                                        <ClearableInput @bind-Value="school.Slug" Placeholder="almby-skola" />
+                                    </label>
+                                    <button type="button" class="btn btn--icon" title="Ta bort @school.Name"
+                                            @onclick="() => draft.SchoolMenu.Schools.Remove(school)">
+                                        <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                    </button>
+                                </div>
+
+                                <p class="settings__preview">@Matsedelsadress(school.Slug)</p>
+                            </div>
+                        }
+                    </div>
+
+                    <button type="button" class="btn btn--ghost" @onclick="AddSchool">
+                        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                        Lägg till skola
+                    </button>
+
+                    @if (draft.SchoolMenu.Schools.Count == 0)
+                    {
+                        <p class="empty-state">Ingen skola tillagd än.</p>
+                    }
+                </section>
+            }
+
+            @if (section == Section.Health)
+            {
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Källor</h2>
+                        <div class="card__head-actions">
+                            <span class="eyebrow">@HealthSummary</span>
+                            <button type="button" class="btn btn--icon" title="Uppdatera"
+                                    aria-label="Uppdatera hälsoläget" @onclick="StateHasChanged">
+                                <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+                            </button>
+                        </div>
+                    </header>
+
+                    <p class="settings__help">
+                        En skärm på väggen kan inte säga ifrån själv. Slutar en nyckel gälla står
+                        gammal data kvar och ser normal ut. Det är här det syns. En källa räknas
+                        som <strong>tyst</strong> först när den missat sitt intervall tre gånger,
+                        så ett enstaka misslyckat anrop larmar inte i onödan.
+                    </p>
+
+                    <div class="health">
+                        @foreach (var source in Sources)
+                        {
+                            <div class="health__row">
+                                <span class="health__dot @DotClass(source.State)" aria-hidden="true"></span>
+
+                                <span class="health__what">
+                                    <span class="health__name">@source.Name</span>
+                                    <span class="health__detail">@source.Detail</span>
+                                </span>
+
+                                <span class="health__state @DotClass(source.State)">@StateLabel(source.State)</span>
+
+                                <span class="health__interval">var @Humanize(source.Interval)</span>
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Senaste problem</h2>
+                        <span class="eyebrow">@IncidentSummary</span>
+                    </header>
+
+                    <p class="settings__help">
+                        Varje varning och fel från appens egen kod, nyast först. Listan rymmer de
+                        200 senaste och nollställs när appen startas om.
+                    </p>
+
+                    @if (Incidents.Count > 0)
+                    {
+                        <div class="health__log">
+                            @foreach (var item in Incidents)
+                            {
+                                <div class="health__incident @(item.IsError ? "is-error" : null)">
+                                    <span class="health__when">@Ago(item.At)</span>
+                                    <span class="health__origin">@item.Source</span>
+                                    <span class="health__message">@item.Message</span>
+                                </div>
+                            }
+                        </div>
+
+                        <button type="button" class="btn btn--ghost" @onclick="Health.Clear">
+                            <span class="material-symbols-outlined" aria-hidden="true">delete_sweep</span>
+                            Töm listan
+                        </button>
+                    }
+                    else
+                    {
+                        <p class="empty-state">Inga problem registrerade sedan senaste omstarten.</p>
+                    }
+                </section>
+            }
+
+            @if (section == Section.General)
+            {
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Allmänt</h2>
+                    </header>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>Startsidans namn</span>
+                                <ClearableInput @bind-Value="draft.HomeName" Placeholder="Hemma" />
+                            </label>
+                        </div>
+
+                        <div class="row">
+                            <label class="field field--check">
+                                <span>Namnsdag</span>
+                                <input type="checkbox" @bind="draft.NameDay.Enabled" />
+                            </label>
+                            <label class="field field--check">
+                                <span>Analog klocka</span>
+                                <input type="checkbox" @bind="draft.Clock.ShowAnalog" />
+                            </label>
+                            <label class="field field--check">
+                                <span>Skärmtangentbord</span>
+                                <input type="checkbox" checked="@draft.TouchKeyboard" @onchange="ToggleKeyboard" />
+                            </label>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="surface surface--pad">
+                    <header class="card__head">
+                        <h2 class="card__title">Uppdateringstakt</h2>
+                    </header>
+
+                    <p class="settings__help">
+                        Hur ofta varje källa hämtas om. Alla uppdateras av sig själva. Inget
+                        behöver laddas om för hand.
+                    </p>
+
+                    @if (intervalWarning is not null)
+                    {
+                        <p class="settings__status is-error">@intervalWarning</p>
+                    }
+
+                    <div class="rows">
+                        @foreach (var item in IntervalFields)
+                        {
+                            <div class="row" @key="item.Label">
+                                <label class="field field--interval">
+                                    <span>@item.Label</span>
+                                    <input type="number" min="@((int)item.Minimum.TotalSeconds)" max="86400"
+                                           @key="(item.Label, intervalVersion)"
+                                           value="@((int)item.Get(draft.Intervals).TotalSeconds)"
+                                           @onchange="e => SetInterval(item, e.Value)" />
+                                </label>
+                                <span class="settings__status">
+                                    @Humanize(item.Get(draft.Intervals))
+                                    <span class="settings__floor">lägst @Humanize(item.Minimum)</span>
+                                </span>
+                            </div>
+                        }
+                    </div>
+
+                    <p class="settings__help">
+                        Nyhetsflödet på startsidan. Välj din SVT-region så fylls adress och rubrik
+                        i automatiskt — eller klistra in vilket RSS-flöde du vill.
+                    </p>
+
+                    <div class="rows">
+                        <div class="row">
+                            <label class="field field--grow">
+                                <span>SVT-region</span>
+                                <select value="@SelectedRegion" @onchange="ChooseRegion">
+                                    <option value="">Eget flöde</option>
+                                    @foreach (var region in SvtRegions.All)
+                                    {
+                                        <option value="@region.Slug">@region.Name</option>
+                                    }
+                                </select>
+                            </label>
+                        </div>
+
+                        <div class="row">
+                            <label class="field field--grow2">
+                                <span>Nyhetsflöde (RSS)</span>
+                                <ClearableInput @bind-Value="draft.News.Url" />
+                            </label>
+                            <label class="field field--grow">
+                                <span>Rubrik</span>
+                                <ClearableInput @bind-Value="draft.News.Title" />
+                            </label>
+                            <label class="field field--narrow">
+                                <span>Antal</span>
+                                <input type="number" min="1" max="20" @bind="draft.News.MaxItems" />
+                            </label>
+                            <label class="field field--check">
+                                <span>Visa</span>
+                                <input type="checkbox" @bind="draft.News.Enabled" />
+                            </label>
+                        </div>
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+</div>
+</SettingsGate>
+
+@code {
+    private enum Section { World, Devices, Economy, Planning, General, Health }
+    private sealed record SectionTab(Section Id, string Slug, string Label, string Icon, Func<DashboardOptions, int?> Count);
+    [SupplyParameterFromQuery(Name = "del")]
+    private string? SectionParam { get; set; }
+    private Section section = Section.General;
+    private DashboardOptions draft = new();
+    private string searchTerm = string.Empty;
+    private bool searching;
+    private string? searchMessage;
+    private IReadOnlyList<PlaceSuggestion> searchResults = [];
+    private sealed record Probe(string Name, bool Ok, string? Error);
+    private bool testing;
+    private List<Probe> testResults = [];
+    private static IEnumerable<string> IconsFor(string? current) => string.IsNullOrWhiteSpace(current) || Icons.Contains(current, StringComparer.Ordinal) ? Icons : Icons.Prepend(current);
+    private List<string> knownRooms = [];
+    private bool saving;
+    private bool showKeys;
+    private string? status;
+    private bool failed;
+    private string KeyInputType => showKeys ? "text" : "password";
+    private sealed record Zone(string Id, string Label);
+    private List<Zone> zones = [];
+    private IReadOnlyList<SourceHealth> Sources => HealthMonitor.Describe(Store.Current, State.Current);
+    private IReadOnlyList<HealthIncident> Incidents => Health.Recent;
+    private string stopTerm = string.Empty;
+    private bool stopSearching;
+    private string? stopMessage;
+    private IReadOnlyList<BLZULSA.Models.StopSuggestion> stopResults = [];
+    private string stockTerm = string.Empty;
+    private bool stockSearching;
+    private string? stockMessage;
+    private IReadOnlyList<BLZULSA.Models.StockSuggestion> stockResults = [];
+    private string? intervalWarning;
+    private int intervalVersion;
+    private IReadOnlyList<string> countyMunicipalities = [];
+    private string countyLoadedFor = string.Empty;
+    private bool countyLoading;
+    private DateTime draftLoadedAt;
+    private SettingsGate? gate;
+    private bool confirmLeave;
+
+    private static readonly SectionTab[] Sections =
+    [
+        new(Section.General, "allmant", "Allmänt", "tune", _ => null),
+        new(Section.World, "varldstider", "Världstider", "public", d => d.OpenWeather.Cities.Count),
+        new(Section.Devices, "enheter", "Enheter", "lightbulb", d => d.Shelly.Lights.Count + d.Shelly.Sensors.Count),
+        new(Section.Economy, "ekonomi", "Ekonomi", "monitoring", _ => null),
+        new(Section.Planning, "planering", "Planering", "event",
+            d => d.Calendar.Feeds.Count + d.Transit.Stops.Count + d.SchoolMenu.Schools.Count),
+        new(Section.Health, "halsa", "Hälsa", "monitor_heart", _ => null),
+    ];
+
+    private static readonly string[] Icons =
+    [
+        "lightbulb", "light", "floor_lamp", "table_lamp", "wb_incandescent",
+        "wb_iridescent", "flare", "emoji_objects", "highlight", "nightlight",
+        "bed", "window", "blinds", "curtains", "roller_shades",
+        "countertops", "dining", "kitchen", "microwave", "coffee",
+        "weekend", "chair", "tv", "desk", "living",
+        "bathtub", "shower", "wash", "door_front", "garage",
+        "stairs", "yard", "deck", "local_florist", "outdoor_garden",
+        "ac_unit", "heat_pump", "mode_fan", "thermostat", "water_heater",
+        "power", "outlet", "sensors", "speaker", "router",
+    ];
+
+    protected override void OnInitialized()
+    {
+        Reset();
+        zones = BuildZones();
+    }
+
+    private void RefreshKnownRooms() => knownRooms =
+        [
+            .. draft.Shelly.Lights
+                .Select(l => l.Room)
+                .Where(r => !string.IsNullOrWhiteSpace(r))
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(r => r, StringComparer.CurrentCulture)
+        ];
+
+    protected override void OnParametersSet() => section = Sections.FirstOrDefault(t => string.Equals(t.Slug, SectionParam, StringComparison.OrdinalIgnoreCase))?.Id ?? Section.General;
+
+    private void GoTo(Section target)
+    {
+        var slug = Sections.First(t => t.Id == target).Slug;
+        Navigation.NavigateTo($"installningar?del={slug}", replace: true);
+    }
+
+    private static List<Zone> BuildZones() => [.. TimeZoneCache.SuggestedIds.Select(Describe).OrderBy(z => z.Label, StringComparer.CurrentCulture)];
+
+    private static Zone Describe(string id)
+    {
+        var info = TimeZoneCache.Get(id);
+        var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, info);
+        var offset = info.GetUtcOffset(DateTime.UtcNow);
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+
+        return new Zone(id, $"{id} · {now:HH:mm} (UTC{sign}{offset.Duration():hh\\:mm})");
+    }
+
+    private IEnumerable<Zone> ZonesFor(string? current) => string.IsNullOrWhiteSpace(current) || zones.Any(z => z.Id == current) ? zones: zones.Prepend(Describe(current));
+
+    private sealed record IntervalField(string Source, string Label, Func<IntervalOptions, TimeSpan> Get, Action<IntervalOptions, TimeSpan> Set)
+    {
+        public TimeSpan Minimum => IntervalLimits.Minimum(Source);
+    }
+
+    private static readonly IntervalField[] IntervalFields =
+    [
+        new(DashboardRefreshService.WeatherSource, "Väder", i => i.Weather, (i, v) => i.Weather = v),
+        new(DashboardRefreshService.NameDaySource, "Namnsdag", i => i.NameDay, (i, v) => i.NameDay = v),
+        new(DashboardRefreshService.NewsSource, "Nyheter", i => i.News, (i, v) => i.News = v),
+        new(DashboardRefreshService.FinanceNewsSource, "Ekonominyheter", i => i.FinanceNews, (i, v) => i.FinanceNews = v),
+        new(DashboardRefreshService.ElectricitySource, "Elpris", i => i.Electricity, (i, v) => i.Electricity = v),
+        new(DashboardRefreshService.FuelSource, "Drivmedel", i => i.Fuel, (i, v) => i.Fuel = v),
+        new(DashboardRefreshService.RatesSource, "Räntor", i => i.InterestRates, (i, v) => i.InterestRates = v),
+        new(DashboardRefreshService.StocksSource, "Aktier", i => i.Stocks, (i, v) => i.Stocks = v),
+        new(DashboardRefreshService.CalendarSource, "Kalender", i => i.Calendar, (i, v) => i.Calendar = v),
+        new(DashboardRefreshService.DeparturesSource, "Bussavgångar", i => i.Departures, (i, v) => i.Departures = v),
+        new(DashboardRefreshService.SchoolMenuSource, "Skollunch", i => i.SchoolMenu, (i, v) => i.SchoolMenu = v),
+        new(DashboardRefreshService.LightsSource, "Enheter", i => i.Lights, (i, v) => i.Lights = v),
+        new(DashboardRefreshService.IndoorSource, "Inomhusgivare", i => i.IndoorSensors, (i, v) => i.IndoorSensors = v),
+    ];
+
+    private void SetInterval(IntervalField field, object? raw)
+    {
+        if (!int.TryParse(raw?.ToString(), out var seconds)) { return; }
+
+        var wanted = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 86400));
+        var lowest = field.Minimum;
+
+        if (wanted < lowest)
+        {
+            field.Set(draft.Intervals, lowest);
+            intervalWarning = $"{field.Label} kan inte uppdateras oftare än var {Humanize(lowest)} — API:et stryper annars. Värdet sattes till lägsta tillåtna.";
+            intervalVersion++;
+            return;
+        }
+
+        field.Set(draft.Intervals, wanted);
+        intervalWarning = null;
+    }
+
+    private static string Humanize(TimeSpan value) => value switch
+    {
+        { TotalSeconds: < 90 } => $"{value.TotalSeconds:0} sekunder",
+        { TotalMinutes: < 90 } => $"{value.TotalMinutes:0} minuter",
+        _ => $"{value.TotalHours:0.#} timmar",
+    };
+
+    private void Reset()
+    {
+        draft = Clone(Store.Current);
+        draftLoadedAt = Store.LastWriteUtc;
+        RefreshKnownRooms();
+        status = null;
+        failed = false;
+    }
+
+
+
+    private IReadOnlyList<string> AvailableMunicipalities =>
+        string.Equals(countyLoadedFor, draft.GasolinePrice.Url, StringComparison.OrdinalIgnoreCase)
+            ? [.. countyMunicipalities
+                .Concat(draft.GasolinePrice.Municipalities)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m, StringComparer.CurrentCulture)]
+            : [.. State.Current.FuelMunicipalities
+            .Concat(draft.GasolinePrice.Municipalities)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m, StringComparer.CurrentCulture)];
+
+    private void ToggleMunicipality(string place)
+    {
+        var existing = draft.GasolinePrice.Municipalities.FirstOrDefault(m => string.Equals(m, place, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is not null)
+        {
+            draft.GasolinePrice.Municipalities.Remove(existing);
+        }
+        else
+        {
+            draft.GasolinePrice.Municipalities.Add(place);
+        }
+    }
+
+    private async Task TestDevices()
+    {
+        testing = true;
+        testResults = [];
+
+        try
+        {
+            var devices = draft.Shelly.Lights.Select(l => (l.Name, l.DeviceId, Key: draft.Shelly.AuthKey)).Concat(draft.Shelly.Sensors.Select(s => (Name: s.DisplayName, s.DeviceId, Key: draft.Shelly.AuthKey)))
+                                             .Where(d => !string.IsNullOrWhiteSpace(d.DeviceId)).ToList();
+
+            if (devices.Count == 0)
+            {
+                testResults = [new Probe("Inga enheter", false, "Fyll i minst ett enhets-ID först.")];
+                return;
+            }
+
+            foreach (var device in devices)
+            {
+                var result = await Shelly.TestDeviceAsync(device.DeviceId, device.Key, CancellationToken.None);
+                testResults.Add(new Probe(device.Name, result.Ok, result.Error));
+            }
+        }
+        finally
+        {
+            testing = false;
+        }
+    }
+
+    private void SetPrimary(CityOptions city)
+    {
+        foreach (var candidate in draft.OpenWeather.Cities)
+        {
+            candidate.IsPrimary = ReferenceEquals(candidate, city);
+        }
+    }
+
+    private string HealthSummary
+    {
+        get
+        {
+            var sources = Sources;
+            var stale = sources.Count(s => s.State == HealthState.Stale);
+            var ok = sources.Count(s => s.State == HealthState.Ok);
+
+            return stale > 0 ? $"{stale} tysta · {ok} aktiva" : $"{ok} av {sources.Count} aktiva";
+        }
+    }
+
+    private string IncidentSummary
+    {
+        get
+        {
+            var errors = Health.ErrorCount;
+            var total = Health.Count;
+
+            if (total == 0)
+            {
+                return "Inget att visa";
+            }
+
+            return errors > 0 ? $"{total} poster · {errors} fel" : $"{total} varningar";
+        }
+    }
+
+    private static string StateLabel(HealthState state) => state switch
+    {
+        HealthState.Off => "Av",
+        HealthState.NeedsSetup => "Behöver inställning",
+        HealthState.Waiting => "Väntar",
+        HealthState.Stale => "Tyst",
+        _ => "OK",
+    };
+
+    private static string DotClass(HealthState state) => state switch
+    {
+        HealthState.Off => "is-off",
+        HealthState.NeedsSetup => "is-setup",
+        HealthState.Waiting => "is-waiting",
+        HealthState.Stale => "is-stale",
+        _ => "is-ok",
+    };
+
+    private string SelectedRegion => SvtRegions.FromUrl(draft.News.Url)?.Slug ?? string.Empty;
+    private string SelectedCounty => FuelCounties.FromUrl(draft.GasolinePrice.Url)?.Slug ?? string.Empty;
+
+    private async Task ChooseCounty(ChangeEventArgs e)
+    {
+        if (FuelCounties.All.FirstOrDefault(c => c.Slug == e.Value?.ToString()) is not { } county) { return; }
+
+        draft.GasolinePrice.Url = county.Url;
+        draft.GasolinePrice.Municipalities.Clear();
+        await LoadCountyMunicipalities();
+    }
+
+    private async Task LoadCountyMunicipalities()
+    {
+        var url = draft.GasolinePrice.Url;
+        if (string.IsNullOrWhiteSpace(url)) { return; }
+
+        countyLoading = true;
+        countyMunicipalities = [];
+
+        try
+        {
+            var report = await Fuel.GetPricesAsync(url, [], CancellationToken.None);
+            countyMunicipalities = report is null ? [] : [.. report.Municipalities];
+            countyLoadedFor = url;
+        }
+        finally
+        {
+            countyLoading = false;
+        }
+    }
+
+    private void ChooseRegion(ChangeEventArgs e)
+    {
+        if (SvtRegions.All.FirstOrDefault(r => r.Slug == e.Value?.ToString()) is not { } region) { return; }
+
+        draft.News.Url = region.Url;
+        draft.News.Title = region.Title;
+    }
+
+    private static string Ago(DateTimeOffset at) => $"{HealthMonitor.Humanize(DateTimeOffset.UtcNow - at)} sedan";
+    private void ClearPlaceSearch()
+    {
+        searchResults = [];
+        searchMessage = null;
+    }
+
+    private void ClearStockSearch()
+    {
+        stockResults = [];
+        stockMessage = null;
+    }
+
+    private void ClearStopSearch()
+    {
+        stopResults = [];
+        stopMessage = null;
+    }
+
+    private void AddSchool() => draft.SchoolMenu.Schools.Add(new SchoolOptions());
+
+    private string Matsedelsadress(string? slug)
+    {
+        var namn = SchoolMenuService.NormalizeSlug(slug);
+
+        return namn.Length == 0
+            ? "Fyll i adressnamnet för att se adressen."
+            : draft.SchoolMenu.PageUrl.TrimEnd('/') + "/" + namn;
+    }
+
+    private void AddCalendarFeed() => draft.Calendar.Feeds.Add(new CalendarFeedOptions());
+
+    private Task StopSearchOnEnter(KeyboardEventArgs e) => e.Key == "Enter" ? SearchStops() : Task.CompletedTask;
+
+    private async Task SearchStops()
+    {
+        if (string.IsNullOrWhiteSpace(stopTerm))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.Transit.ApiKey))
+        {
+            stopMessage = "Fyll i ResRobot-nyckeln ovan f\u00f6rst \u2014 s\u00f6kningen g\u00e5r via den.";
+            stopResults = [];
+            return;
+        }
+
+        stopSearching = true;
+        stopMessage = null;
+
+        try
+        {
+            stopResults = await Transit.SearchStopsAsync(stopTerm, draft.Transit.ApiKey, CancellationToken.None);
+
+            if (stopResults.Count == 0)
+            {
+                stopMessage = $"Hittade ingen h\u00e5llplats f\u00f6r \"{stopTerm}\".";
+            }
+        }
+        finally
+        {
+            stopSearching = false;
+        }
+    }
+
+    private void AddStop(BLZULSA.Models.StopSuggestion hit)
+    {
+        if (draft.Transit.Stops.Any(x => string.Equals(x.StopId, hit.StopId, StringComparison.Ordinal)))
+        {
+            stopMessage = $"{hit.Name} finns redan i listan.";
+            return;
+        }
+
+        draft.Transit.Stops.Add(new TransitStopOptions
+        {
+            StopId = hit.StopId,
+            Name = hit.Name,
+        });
+
+        stopResults = [];
+        stopTerm = string.Empty;
+        stopMessage = null;
+    }
+
+    private Task StockSearchOnEnter(KeyboardEventArgs e) => e.Key == "Enter" ? SearchStocks() : Task.CompletedTask;
+
+    private async Task SearchStocks()
+    {
+        if (string.IsNullOrWhiteSpace(stockTerm))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.Stocks.ApiKey))
+        {
+            stockMessage = "Fyll i Finnhub-nyckeln ovan först — sökningen går via den.";
+            stockResults = [];
+            return;
+        }
+
+        stockSearching = true;
+        stockMessage = null;
+
+        try
+        {
+            stockResults = await Finnhub.SearchAsync(stockTerm, draft.Stocks.ApiKey, CancellationToken.None);
+
+            if (stockResults.Count == 0)
+            {
+                stockMessage = $"Hittade inget för \"{stockTerm}\". Ger ingen sökning träff är nyckeln troligen fel.";
+            }
+        }
+        finally
+        {
+            stockSearching = false;
+        }
+    }
+
+    private void AddStock(BLZULSA.Models.StockSuggestion hit)
+    {
+        if (draft.Stocks.Symbols.Any(x => string.Equals(x.Symbol, hit.Symbol, StringComparison.OrdinalIgnoreCase)))
+        {
+            stockMessage = $"{hit.Label} finns redan i listan.";
+            return;
+        }
+
+        draft.Stocks.Symbols.Add(new StockOptions
+        {
+            Symbol = hit.Symbol,
+            Label = hit.Label,
+        });
+
+        stockResults = [];
+        stockTerm = string.Empty;
+        stockMessage = null;
+    }
+
+    private Task SearchOnEnter(KeyboardEventArgs e) => e.Key == "Enter" ? SearchPlaces() : Task.CompletedTask;
+
+    private async Task SearchPlaces()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.OpenWeather.ApiKey))
+        {
+            searchMessage = "Fyll i OpenWeather-nyckeln längre ned först — sökningen går via den.";
+            searchResults = [];
+            return;
+        }
+
+        searching = true;
+        searchMessage = null;
+
+        try
+        {
+            searchResults = await Weather.SearchPlacesAsync(searchTerm, CancellationToken.None);
+
+            if (searchResults.Count == 0)
+            {
+                searchMessage = $"Hittade inget för \"{searchTerm}\".";
+            }
+        }
+        finally
+        {
+            searching = false;
+        }
+    }
+
+    private void AddPlace(PlaceSuggestion place)
+    {
+        draft.OpenWeather.Cities.Add(new CityOptions
+        {
+            Key = NewKey("plats"),
+            DisplayName = place.Name,
+            Query = place.Query,
+            TimeZone = place.TimeZoneId,
+        });
+
+        if (!zones.Any(z => z.Id == place.TimeZoneId))
+        {
+            zones = [.. zones.Append(Describe(place.TimeZoneId)).OrderBy(z => z.Label, StringComparer.CurrentCulture)];
+        }
+
+        searchResults = [];
+        searchTerm = string.Empty;
+        searchMessage = null;
+    }
+
+    private static string LocalTime(string timeZoneId) => TimeZoneCache.Now(timeZoneId).ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    private void AddLight()
+    {
+        draft.Shelly.Lights.Add(new LightOptions
+        {
+            Key = NewKey("enhet"),
+            Name = "Ny enhet",
+            Room = draft.Shelly.Lights.LastOrDefault()?.Room ?? "Bottenvåning",
+            Icon = "lightbulb",
+        });
+
+        RefreshKnownRooms();
+    }
+
+    private void RemoveLight(LightOptions light)
+    {
+        draft.Shelly.Lights.Remove(light);
+        RefreshKnownRooms();
+    }
+
+    private void AddRate() => draft.InterestRates.Series.Add(new InterestRateSeries { Label = "Ny ränta" });
+
+    private void AddSensor() => draft.Shelly.Sensors.Add(new ShellyDeviceOptions
+        {
+            Key = NewKey("givare"),
+            DisplayName = "Ny givare",
+        });
+
+    private static string NewKey(string prefix) => $"{prefix}-{Guid.NewGuid().ToString("n")[..8]}";
+
+    private List<string> MissingRequired()
+    {
+        var missing = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(draft.HomeName)) { missing.Add("Startsidans namn"); }
+        if (string.IsNullOrWhiteSpace(draft.News.Url)) { missing.Add("Nyhetsflöde"); }
+        if (string.IsNullOrWhiteSpace(draft.GasolinePrice.Url)) { missing.Add("Drivmedelsadress"); }
+
+        foreach (var city in draft.OpenWeather.Cities)
+        {
+            var label = string.IsNullOrWhiteSpace(city.DisplayName) ? "en plats" : city.DisplayName;
+
+            if (string.IsNullOrWhiteSpace(city.DisplayName)) { missing.Add("Namn på en plats"); }
+            if (string.IsNullOrWhiteSpace(city.Query)) { missing.Add($"Vädersökning för {label}"); }
+            if (string.IsNullOrWhiteSpace(city.TimeZone)) { missing.Add($"Tidszon för {label}"); }
+        }
+
+        return missing;
+    }
+
+    private async Task ToggleKeyboard(ChangeEventArgs e)
+    {
+        draft.TouchKeyboard = e.Value is true;
+
+        try
+        {
+            await JS.InvokeVoidAsync("osk.setEnabled", draft.TouchKeyboard);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private void LeaveKiosk()
+    {
+        confirmLeave = false;
+
+        if (gate is not { IsUnlocked: true })
+        {
+            status = "Inställningarna är låsta.";
+            failed = true;
+            return;
+        }
+
+        if (!Kiosk.IsAvailable)
+        {
+            status = "Lämna tavlan fungerar bara på Raspberry Pi:n.";
+            failed = true;
+            return;
+        }
+
+        if (Kiosk.TryPause())
+        {
+            status = "Tavlan stängs. Den kommer tillbaka av sig själv om " + KioskPause.Duration.TotalMinutes.ToString("0") + " minuter.";
+            failed = false;
+        }
+        else
+        {
+            status = "Kunde inte lämna tavlan. Se Hälsa.";
+            failed = true;
+        }
+    }
+
+    private async Task Save()
+    {
+        if (gate is not { IsUnlocked: true })
+        {
+            status = "Inställningarna är låsta. Inget sparat.";
+            failed = true;
+            return;
+        }
+
+        saving = true;
+        status = null;
+
+        try
+        {
+            Normalize(draft);
+
+            if (Store.LastWriteUtc > draftLoadedAt)
+            {
+                status = "Inställningarna har ändrats någon annanstans sedan du öppnade sidan. Tryck Återställ för att hämta dem, annars skrivs de över. Inget sparat.";
+                failed = true;
+                return;
+            }
+
+            if (MissingRequired() is { Count: > 0 } missing)
+            {
+                status = $"Måste fyllas i: {string.Join(", ", missing)}. Inget sparat.";
+                failed = true;
+                return;
+            }
+
+            var badZones = draft.OpenWeather.Cities.Where(c => !TimeZoneCache.Exists(c.TimeZone)).Select(c => c.DisplayName).ToList();
+            if (badZones.Count > 0)
+            {
+                status = $"Okänd tidszon för {string.Join(", ", badZones)}. Inget sparat.";
+                failed = true;
+                return;
+            }
+
+            await Store.SaveAsync(draft);
+            draftLoadedAt = Store.LastWriteUtc;
+            Refresh.Trigger();
+            status = "Sparat.";
+            failed = false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            status = $"Kunde inte spara: {ex.Message}";
+            failed = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private static void Normalize(DashboardOptions settings)
+    {
+        settings.OpenWeather.Cities.RemoveAll(c => string.IsNullOrWhiteSpace(c.DisplayName));
+        settings.Shelly.Lights.RemoveAll(l => string.IsNullOrWhiteSpace(l.Name));
+        settings.Shelly.Sensors.RemoveAll(s => string.IsNullOrWhiteSpace(s.DisplayName));
+        settings.InterestRates.Series.RemoveAll(r => string.IsNullOrWhiteSpace(r.SeriesId));
+
+        foreach (var school in settings.SchoolMenu.Schools)
+        {
+            school.Slug = SchoolMenuService.NormalizeSlug(school.Slug);
+            school.Name = school.Name.Trim();
+        }
+
+        settings.SchoolMenu.Schools.RemoveAll(x => x.Slug.Length == 0);
+
+        if (settings.OpenWeather.Cities.Count > 0
+            && !settings.OpenWeather.Cities.Any(c => c.IsPrimary))
+        {
+            settings.OpenWeather.Cities[0].IsPrimary = true;
+        }
+    }
+
+    private static DashboardOptions Clone(DashboardOptions source) => new()
+    {
+        HomeName = source.HomeName,
+        TouchKeyboard = source.TouchKeyboard,
+        HttpTimeout = source.HttpTimeout,
+        Intervals = new IntervalOptions
+        {
+            Weather = source.Intervals.Weather,
+            NameDay = source.Intervals.NameDay,
+            News = source.Intervals.News,
+            FinanceNews = source.Intervals.FinanceNews,
+            Electricity = source.Intervals.Electricity,
+            Fuel = source.Intervals.Fuel,
+            InterestRates = source.Intervals.InterestRates,
+            Stocks = source.Intervals.Stocks,
+            Calendar = source.Intervals.Calendar,
+            Departures = source.Intervals.Departures,
+            SchoolMenu = source.Intervals.SchoolMenu,
+            Lights = source.Intervals.Lights,
+            IndoorSensors = source.Intervals.IndoorSensors,
+        },
+        OpenWeather = new OpenWeatherOptions
+        {
+            BaseUrl = source.OpenWeather.BaseUrl,
+            ApiKey = source.OpenWeather.ApiKey,
+            Cities = [.. source.OpenWeather.Cities.Select(c => new CityOptions
+            {
+                Key = c.Key,
+                DisplayName = c.DisplayName,
+                Query = c.Query,
+                TimeZone = c.TimeZone,
+                IsPrimary = c.IsPrimary,
+            })],
+        },
+        NameDay = new NameDayOptions { Enabled = source.NameDay.Enabled, BaseUrl = source.NameDay.BaseUrl },
+        Clock = new ClockOptions { ShowAnalog = source.Clock.ShowAnalog },
+        News = new NewsOptions
+        {
+            Enabled = source.News.Enabled,
+            Url = source.News.Url,
+            Title = source.News.Title,
+            MaxItems = source.News.MaxItems,
+        },
+        InterestRates = new InterestRatesOptions
+        {
+            Enabled = source.InterestRates.Enabled,
+            BaseUrl = source.InterestRates.BaseUrl,
+            Series = [.. source.InterestRates.Series.Select(r => new InterestRateSeries
+            {
+                SeriesId = r.SeriesId,
+                Label = r.Label,
+            })],
+        },
+        Stocks = new StocksOptions
+        {
+            Enabled = source.Stocks.Enabled,
+            BaseUrl = source.Stocks.BaseUrl,
+            ApiKey = source.Stocks.ApiKey,
+            Symbols = [.. source.Stocks.Symbols.Select(x => new StockOptions
+            {
+                Symbol = x.Symbol,
+                Label = x.Label,
+            })],
+        },
+        FinanceNews = new NewsOptions
+        {
+            Enabled = source.FinanceNews.Enabled,
+            Url = source.FinanceNews.Url,
+            Title = source.FinanceNews.Title,
+            MaxItems = source.FinanceNews.MaxItems,
+        },
+        GasolinePrice = new GasolinePriceOptions
+        {
+            Enabled = source.GasolinePrice.Enabled,
+            Url = source.GasolinePrice.Url,
+            Municipalities = [.. source.GasolinePrice.Municipalities],
+        },
+        ElectricityPrice = new ElectricityPriceOptions
+        {
+            Enabled = source.ElectricityPrice.Enabled,
+            BaseUrl = source.ElectricityPrice.BaseUrl,
+            Zone = source.ElectricityPrice.Zone,
+        },
+        Calendar = new CalendarOptions
+        {
+            Enabled = source.Calendar.Enabled,
+            DaysAhead = source.Calendar.DaysAhead,
+            MaxItems = source.Calendar.MaxItems,
+            Feeds = [.. source.Calendar.Feeds.Select(f => new CalendarFeedOptions
+            {
+                Name = f.Name,
+                Url = f.Url,
+            })],
+        },
+        Transit = new TransitOptions
+        {
+            Enabled = source.Transit.Enabled,
+            BaseUrl = source.Transit.BaseUrl,
+            ApiKey = source.Transit.ApiKey,
+            MaxDepartures = source.Transit.MaxDepartures,
+            WindowMinutes = source.Transit.WindowMinutes,
+            Stops = [.. source.Transit.Stops.Select(x => new TransitStopOptions
+            {
+                StopId = x.StopId,
+                Name = x.Name,
+            })],
+        },
+        SchoolMenu = new SchoolMenuOptions
+        {
+            Enabled = source.SchoolMenu.Enabled,
+            PageUrl = source.SchoolMenu.PageUrl,
+            FirefoxPath = source.SchoolMenu.FirefoxPath,
+            RenderTimeout = source.SchoolMenu.RenderTimeout,
+            Schools = [.. source.SchoolMenu.Schools.Select(x => new SchoolOptions
+            {
+                Slug = x.Slug,
+                Name = x.Name,
+            })],
+        },
+        Shelly = new ShellyOptions
+        {
+            Enabled = source.Shelly.Enabled,
+            BaseUrl = source.Shelly.BaseUrl,
+            AuthKey = source.Shelly.AuthKey,
+            Sensors = [.. source.Shelly.Sensors.Select(s => new ShellyDeviceOptions
+            {
+                Key = s.Key,
+                DisplayName = s.DisplayName,
+                DeviceId = s.DeviceId,
+            })],
+            Lights = [.. source.Shelly.Lights.Select(l => new LightOptions
+            {
+                Key = l.Key,
+                Name = l.Name,
+                Room = l.Room,
+                Icon = l.Icon,
+                DeviceId = l.DeviceId,
+                Channel = l.Channel,
+            })],
+        },
+    };
+}

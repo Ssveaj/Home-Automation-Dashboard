@@ -1,0 +1,14 @@
+@inherits DashboardComponentBase
+
+<div class="clock__nameday">
+    <span class="eyebrow">Namnsdag</span>
+
+    @if (Data.NameDay is { Names.IsEmpty: false } nameDay)
+    {
+        <span class="clock__nameday-names">@string.Join(" · ", nameDay.Names)</span>
+    }
+    else if (Data.NameDay is not null)
+    {
+        <span class="clock__nameday-names muted">ingen idag</span>
+    }
+</div>

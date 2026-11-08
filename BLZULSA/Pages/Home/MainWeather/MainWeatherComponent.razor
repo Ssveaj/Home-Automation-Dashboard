@@ -1,0 +1,79 @@
+﻿@inherits DashboardComponentBase
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+@if (Weather is null)
+{
+    <div class="hero__row wx">
+        <div class="hero__text">
+            <span class="eyebrow">Väder nu</span>
+            <p class="empty-state">@WeatherEmptyMessage</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="hero__row wx">
+        <div class="hero__text">
+            <span class="eyebrow">Väder nu</span>
+
+            <div class="wx__temp">@Format(Weather.TemperatureC)°</div>
+
+            <div class="wx__place">
+                @Weather.DisplayName · <span class="wx__desc">@(Weather.Description ?? "—")</span>
+            </div>
+
+            <div class="wx__feels">Känns som @Format(Weather.FeelsLikeC)°</div>
+        </div>
+
+        <div class="wx__side">
+            <span class="material-symbols-outlined wx__icon" aria-hidden="true">
+                @WeatherIconMapper.ToIconName(Weather.IconId)
+            </span>
+
+            <div class="chips">
+                <span class="chip">
+                    <span class="material-symbols-outlined" aria-hidden="true">air</span>
+                    <strong>@Format(Weather.WindSpeedMs)</strong> m/s
+                </span>
+                <span class="chip">
+                    <span class="material-symbols-outlined" aria-hidden="true">humidity_percentage</span>
+                    <strong>@Weather.HumidityPercent</strong>%
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
+<BLZULSA.Pages.Home.MainTemperature.MainTemperatureComponent />
+
+@code {
+    private string primaryKey = string.Empty;
+    private CityWeather? Weather => Data.Cities.TryGetValue(primaryKey, out var weather) ? weather : null;
+
+    private string WeatherEmptyMessage
+    {
+        get
+        {
+            var settings = Options.CurrentValue.OpenWeather;
+
+            if (settings.Cities.Count == 0)
+            {
+                return "Lägg till din ort under Inställningar → Världstider.";
+            }
+
+            return string.IsNullOrWhiteSpace(settings.ApiKey) ? "Fyll i OpenWeather-nyckeln under Inställningar → Världstider." : "Vädret kunde inte hämtas just nu.";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        var cities = Options.CurrentValue.OpenWeather.Cities;
+        primaryKey = (cities.FirstOrDefault(c => c.IsPrimary) ?? cities.FirstOrDefault())?.Key ?? string.Empty;
+    }
+
+    private static string Format(double? value) => value?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "–";
+}

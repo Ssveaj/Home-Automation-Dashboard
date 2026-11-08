@@ -1,0 +1,35 @@
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+@inject IJSRuntime JS
+@implements IDisposable
+
+@code {
+    private IDisposable? subscription;
+    private bool applied;
+
+    protected override void OnInitialized() =>
+        subscription = Options.OnChange(_ => InvokeAsync(StateHasChanged));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var wanted = Options.CurrentValue.TouchKeyboard;
+
+        if (!firstRender && wanted == applied)
+        {
+            return;
+        }
+
+        applied = wanted;
+
+        try
+        {
+            await JS.InvokeVoidAsync("osk.setEnabled", wanted);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    public void Dispose() => subscription?.Dispose();
+}

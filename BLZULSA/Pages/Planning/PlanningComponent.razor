@@ -1,0 +1,278 @@
+﻿@page "/planering"
+@inherits DashboardComponentBase
+@using System.Globalization
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+<PageTitle>Planering</PageTitle>
+
+<div class="planning">
+    @if (Settings.Calendar.Enabled)
+    {
+        <section class="surface surface--pad agenda">
+            <header class="card__head">
+                <h2 class="card__title">Kalender</h2>
+                <span class="eyebrow">@AgendaScope</span>
+            </header>
+
+            @if (!Data.Events.IsEmpty)
+            {
+                <div class="agenda__list">
+                    @foreach (var day in Data.Events.GroupBy(e => e.Day).OrderBy(g => g.Key))
+                    {
+                        <div class="agenda__day">
+                            <div class="agenda__date">
+                                <span class="agenda__weekday">@WeekdayLabel(day.Key)</span>
+                                <span class="agenda__daynum">@day.Key.Day @MonthName(day.Key)</span>
+                            </div>
+
+                            <div class="agenda__events">
+                                @foreach (var item in day.OrderBy(e => e.AllDay ? 0 : 1).ThenBy(e => e.Start))
+                                {
+                                    <div class="agenda__event">
+                                        <span class="agenda__when @(item.AllDay ? "is-allday" : null)">@item.When</span>
+
+                                        <span class="agenda__what">
+                                            <span class="agenda__title">@item.Title</span>
+
+                                            @if (item.Location is { } place)
+                                            {
+                                                <span class="agenda__where">
+                                                    <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
+                                                    @place
+                                                </span>
+                                            }
+                                        </span>
+
+                                        @if (item.Calendar is { } owner)
+                                        {
+                                            <span class="agenda__owner">@owner</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="empty-state">@CalendarEmptyMessage</p>
+            }
+        </section>
+    }
+
+    <div class="planning__side">
+    @if (Settings.Transit.Enabled)
+    {
+        <section class="surface surface--pad board">
+            <header class="card__head">
+                <h2 class="card__title">Bussavgångar</h2>
+                <span class="eyebrow">@DepartureScope</span>
+            </header>
+
+            @if (!Data.Departures.IsEmpty)
+            {
+                @foreach (var stop in Data.Departures)
+                {
+                    <div class="board__stop">
+                        @if (Data.Departures.Length > 1)
+                        {
+                            <div class="board__name">
+                                <span class="material-symbols-outlined" aria-hidden="true">directions_bus</span>
+                                @stop.Name
+                            </div>
+                        }
+
+                        @if (stop.Departures.Count > 0)
+                        {
+                            <div class="board__rows">
+                                @foreach (var run in stop.Departures)
+                                {
+                                    <div class="board__row">
+                                        <span class="board__line">@run.Line</span>
+
+                                        <span class="board__dest">
+                                            @run.Destination
+                                            @if (run.DelayMinutes is { } late)
+                                            {
+                                                <span class="board__late">@late min sen</span>
+                                            }
+                                        </span>
+
+                                        <span class="board__time">@run.Expected.ToString("HH:mm", Swedish)</span>
+                                        <span class="board__left @(run.MinutesLeft <= 2 ? "is-now" : null)">
+                                            @run.Countdown
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="empty-state">Inga avgångar den närmaste timmen.</p>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="empty-state">@TransitEmptyMessage</p>
+            }
+        </section>
+    }
+
+    @if (Settings.SchoolMenu.Enabled)
+    {
+        <section class="surface surface--pad menu-card">
+            <header class="card__head">
+                <h2 class="card__title">Skollunch</h2>
+                <span class="eyebrow">@MenuScope</span>
+            </header>
+
+            @if (ShowsOtherSchool)
+            {
+                <p class="empty-state">Den valda skolans matsedel kunde inte hämtas. Nedan visas den som senast fungerade.</p>
+            }
+
+            @if (!Data.Menus.IsEmpty)
+            {
+                @foreach (var school in Data.Menus)
+                {
+                    <div class="menu-card__school">
+                        @if (Data.Menus.Length > 1)
+                        {
+                            <div class="menu-card__name">@school.Name</div>
+                        }
+
+                        @if (school.Days.Count > 0)
+                        {
+                            <div class="menu-card__days">
+                                @foreach (var day in school.Days)
+                                {
+                                    <div class="menu-card__day @(day.Date == Idag ? "is-today" : null)">
+                                        <span class="menu-card__weekday">@Veckodag(day.Date)</span>
+                                        <span class="menu-card__meals">
+                                            @if (day.Meals.Count == 0)
+                                            {
+                                                <span class="menu-card__meal menu-card__meal--none">Ingen meny</span>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var meal in day.Meals)
+                                                {
+                                                    <span class="menu-card__meal">@meal</span>
+                                                }
+                                            }
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="empty-state">Ingen matsedel publicerad för de närmaste dagarna.</p>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="empty-state">@MenuEmptyMessage</p>
+            }
+        </section>
+    }
+
+    </div>
+
+    @if (!Settings.Calendar.Enabled && !Settings.Transit.Enabled && !Settings.SchoolMenu.Enabled)
+    {
+        <p class="empty-state">Allt på den här fliken är avstängt under Inställningar.</p>
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Swedish = CultureInfo.GetCultureInfo("sv-SE");
+    private DashboardOptions Settings => Options.CurrentValue;
+    private Timer? tick;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        tick = new Timer( _ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            tick?.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    private string AgendaScope => Settings.Calendar.Feeds.Count switch
+        {
+            0 => "Ingen kalender",
+            1 => $"{Settings.Calendar.DaysAhead} dagar framåt",
+            var n => $"{n} kalendrar · {Settings.Calendar.DaysAhead} dagar",
+        };
+
+    private string DepartureScope => Settings.Transit.Stops.Count switch
+        {
+            0 => "Ingen hållplats",
+            1 => Settings.Transit.Stops[0].Name,
+            var n => $"{n} hållplatser",
+        };
+
+    private string MenuScope => Data.Menus.Length switch
+        {
+            0 => Settings.SchoolMenu.Schools.Count == 0 ? "Ingen skola" : "Hämtar…",
+            1 => Data.Menus[0].Name,
+            var n => $"{n} skolor",
+        };
+
+    private bool ShowsOtherSchool =>
+        !Data.Menus.IsEmpty
+        && Settings.SchoolMenu.Schools.Count > 0
+        && !Settings.SchoolMenu.Schools.Any(valld => Data.Menus.Any(visad => string.Equals(visad.Slug, valld.Slug, StringComparison.OrdinalIgnoreCase)));
+
+    private string MenuEmptyMessage => Settings.SchoolMenu.Schools.Count == 0
+        ? "Lägg till skolan under Inställningar för att se matsedeln här."
+        : "Matsedeln kunde inte hämtas just nu.";
+
+    private static DateOnly Idag => DateOnly.FromDateTime(SwedishTime.Now);
+
+    private static string Veckodag(DateOnly day)
+    {
+        var namn = Swedish.DateTimeFormat.GetDayName(day.DayOfWeek);
+
+        return char.ToUpper(namn[0], Swedish) + namn[1..];
+    }
+    private string CalendarEmptyMessage => Settings.Calendar.Feeds.Count == 0 ? "Lägg till en ICS-adress under Inställningar för att se kalendern här." : "Inget inplanerat den närmaste tiden.";
+    private string TransitEmptyMessage => Settings.Transit.Stops.Count == 0 ? "Sök upp en hållplats under Inställningar för att se avgångar här.": string.IsNullOrWhiteSpace(Settings.Transit.ApiKey) 
+                                                                            ?  "Fyll i ResRobot-nyckeln under Inställningar." : "Avgångar kunde inte hämtas just nu.";
+
+    private static string WeekdayLabel(DateOnly day)
+    {
+        var today = DateOnly.FromDateTime(SwedishTime.Now);
+
+        if (day == today)
+        {
+            return "I dag";
+        }
+
+        if (day == today.AddDays(1))
+        {
+            return "I morgon";
+        }
+
+        var name = Swedish.DateTimeFormat.GetDayName(day.DayOfWeek);
+        return char.ToUpper(name[0], Swedish) + name[1..];
+    }
+
+    private static string MonthName(DateOnly day) => Swedish.DateTimeFormat.GetMonthName(day.Month);
+}

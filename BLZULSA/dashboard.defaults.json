@@ -1,0 +1,145 @@
+﻿{
+  "Dashboard": {
+    "HomeName": "Hemma",
+    "TouchKeyboard": false,
+    "HttpTimeout": "00:00:15",
+    "Intervals": {
+      "_kommentar": "Hur ofta varje källa hämtas om. Ändras enklast under Inställningar → Allmänt.",
+      "Weather": "01:00:00",
+      "NameDay": "01:00:00",
+      "News": "00:15:00",
+      "FinanceNews": "00:15:00",
+      "Electricity": "01:00:00",
+      "Fuel": "01:00:00",
+      "InterestRates": "06:00:00",
+      "Lights": "00:00:20",
+      "IndoorSensors": "00:10:00",
+      "Stocks": "00:15:00",
+      "Calendar": "00:15:00",
+      "Departures": "00:02:00",
+      "SchoolMenu": "06:00:00"
+    },
+    "OpenWeather": {
+      "BaseUrl": "https://api.openweathermap.org/data/2.5/",
+      "ApiKey": "",
+      "Cities": []
+    },
+    "NameDay": {
+      "Enabled": true,
+      "BaseUrl": "https://sholiday.faboul.se/dagar/v2.1/"
+    },
+    "Clock": {
+      "ShowAnalog": true
+    },
+    "GasolinePrice": {
+      "Enabled": true,
+      "Url": "https://www.henrikhjelm.se/api/getdata.php?lan=orebro-lan"
+    },
+    "News": {
+      "Enabled": true,
+      "Url": "https://www.svt.se/nyheter/lokalt/orebro/rss.xml",
+      "Title": "SVT Nyheter Örebro",
+      "MaxItems": 9
+    },
+    "ElectricityPrice": {
+      "Enabled": true,
+      "BaseUrl": "https://www.elprisetjustnu.se/",
+      "_zon": "SE1 Luleå, SE2 Sundsvall, SE3 Stockholm/Örebro, SE4 Malmö",
+      "Zone": "SE3"
+    },
+    "Shelly": {
+      "_kommentar": "Avstängd: de tidigare auth-nycklarna svarar UNAUTHORIZED. Skapa en ny i Shelly Cloud, fyll i AuthKey och rätt DeviceId, sätt sedan Enabled till true.",
+      "Enabled": true,
+      "BaseUrl": "https://shelly-53-eu.shelly.cloud/",
+      "AuthKey": "",
+      "Sensors": [],
+      "_lampor": "Redigeras enklast under Inställningar i appen. DeviceId fylls i när Shelly kopplats.",
+      "Lights": [
+        {
+          "Key": "rum1",
+          "Name": "Rum 1",
+          "Room": "Hemma",
+          "Icon": "lightbulb",
+          "DeviceId": "",
+          "Channel": 0
+        },
+        {
+          "Key": "rum2",
+          "Name": "Rum 2",
+          "Room": "Hemma",
+          "Icon": "floor_lamp",
+          "DeviceId": "",
+          "Channel": 0
+        },
+        {
+          "Key": "rum3",
+          "Name": "Rum 3",
+          "Room": "Hemma",
+          "Icon": "table_lamp",
+          "DeviceId": "",
+          "Channel": 0
+        }
+      ]
+    },
+    "FinanceNews": {
+      "Enabled": true,
+      "Url": "https://www.placera.se/artiklar/rss.xml",
+      "Title": "Placera",
+      "MaxItems": 8
+    },
+    "InterestRates": {
+      "Enabled": true,
+      "BaseUrl": "https://api.riksbank.se/swea/v1/",
+      "_serier": "Serie-id:n finns på https://api.riksbank.se/swea/v1/Series",
+      "Series": [
+        {
+          "SeriesId": "SECBREPOEFF",
+          "Label": "Styrränta"
+        },
+        {
+          "SeriesId": "SECBREFEFF",
+          "Label": "Referensränta"
+        },
+        {
+          "SeriesId": "SETB3MBENCH",
+          "Label": "3 mån statsskuldväxel"
+        },
+        {
+          "SeriesId": "SEGVB5YC",
+          "Label": "5 år statsobligation"
+        },
+        {
+          "SeriesId": "SEGVB10YC",
+          "Label": "10 år statsobligation"
+        }
+      ]
+    },
+    "Stocks": {
+      "Enabled": true,
+      "BaseUrl": "https://finnhub.io/api/v1/",
+      "ApiKey": "",
+      "Symbols": []
+    },
+    "Calendar": {
+      "Enabled": true,
+      "DaysAhead": 14,
+      "MaxItems": 12,
+      "Feeds": []
+    },
+    "Transit": {
+      "Enabled": true,
+      "BaseUrl": "https://api.resrobot.se/v2.1/",
+      "ApiKey": "",
+      "MaxDepartures": 6,
+      "WindowMinutes": 60,
+      "Stops": []
+    },
+    "SchoolMenu": {
+      "Enabled": true,
+      "Schools": [],
+      "PageUrl": "https://skolmaten.se",
+      "RenderTimeout": "00:01:00",
+      "FirefoxPath": ""
+    }
+  }
+}

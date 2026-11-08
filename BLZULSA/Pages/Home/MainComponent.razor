@@ -1,0 +1,24 @@
+﻿@page "/"
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> HomeOptions
+
+<PageTitle>@HomeName</PageTitle>
+<div class="home">
+    <section class="surface home__clock">
+        <BLZULSA.Pages.Home.MainTime.MainTimeComponent />
+        <BLZULSA.Pages.Home.MainWeather.MainWeatherComponent />
+    </section>
+
+    <section class="surface news">
+        <BLZULSA.Pages.Home.News.NewsComponent />
+    </section>
+
+    <section class="home__world">
+        <BLZULSA.Pages.Home.WorldWeather.WorldWeatherAndTimeComponent />
+    </section>
+</div>
+
+@code {
+    private string HomeName => HomeOptions.CurrentValue.HomeName is { Length: > 0 } n ? n : "Hemma";
+}

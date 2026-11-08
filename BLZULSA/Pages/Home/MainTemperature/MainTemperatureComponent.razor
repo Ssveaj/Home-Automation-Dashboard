@@ -1,0 +1,25 @@
+﻿@inherits DashboardComponentBase
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+@if (Readings.Count > 0)
+{
+    <div class="chips">
+        @foreach (var (sensor, reading) in Readings)
+        {
+            <span class="chip">
+                <span class="material-symbols-outlined" aria-hidden="true">thermostat</span>
+                @sensor.DisplayName <strong>@Format(reading.TemperatureC)°</strong>
+            </span>
+        }
+    </div>
+}
+
+@code {
+    private List<(ShellyDeviceOptions Sensor, IndoorReading Reading)> Readings => Options.CurrentValue.Shelly.Enabled ? [.. Options.CurrentValue.Shelly.Sensors
+                                                                     .Select(s => (Sensor: s, Reading: Data.Indoor.GetValueOrDefault(s.Key))).Where(x => x.Reading is not null)
+                                                                     .Select(x => (x.Sensor, Reading: x.Reading!))] : [];
+
+    private static string Format(decimal? value) => value?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "–";
+}

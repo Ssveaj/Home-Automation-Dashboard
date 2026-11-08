@@ -1,0 +1,22 @@
+<div class="clearable">
+    <input type="@Type" value="@Value" @oninput="Typed"
+           placeholder="@Placeholder" autocomplete="off" spellcheck="false" />
+
+    @if (!string.IsNullOrEmpty(Value))
+    {
+        <button type="button" class="clearable__x" tabindex="-1"
+                title="Rensa fältet" aria-label="Rensa fältet" @onclick="Clear">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Type { get; set; } = "text";
+    [Parameter] public string? Placeholder { get; set; }
+
+    private Task Typed(ChangeEventArgs e) => ValueChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty);
+    private Task Clear() => ValueChanged.InvokeAsync(string.Empty);
+}

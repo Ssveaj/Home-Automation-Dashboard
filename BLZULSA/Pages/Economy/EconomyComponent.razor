@@ -1,0 +1,281 @@
+﻿@page "/ekonomi"
+@inherits DashboardComponentBase
+@using System.Globalization
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+<PageTitle>Ekonomi</PageTitle>
+
+<div class="economy">
+    <div class="economy__main">
+    @if (Settings.ElectricityPrice.Enabled)
+    {
+    <section class="surface surface--pad">
+        <header class="card__head">
+            <h2 class="card__title">Elpris</h2>
+            <span class="eyebrow">@Settings.ElectricityPrice.Zone · spotpris</span>
+        </header>
+
+        @if (Data.Electricity is { Hours.IsEmpty: false } el)
+        {
+            <div class="price-hero">
+                <span class="price-hero__value">@Ore(el.Current?.SekPerKwh)</span>
+                <span class="price-hero__unit">öre/kWh just nu</span>
+            </div>
+
+            <div class="chart-well">
+                <ElectricityPriceChart Prices="el" />
+            </div>
+
+            <div class="stats">
+                <div>
+                    <div class="stat__label">Lägst i dag</div>
+                    <div class="stat__value">@Ore(el.Lowest)<span>öre</span></div>
+                    <div class="stat__note">kl @el.Cheapest?.Start.ToString("HH")</div>
+                </div>
+                <div>
+                    <div class="stat__label">Snitt</div>
+                    <div class="stat__value">@Ore(el.Average)<span>öre</span></div>
+                </div>
+                <div>
+                    <div class="stat__label">Högst i dag</div>
+                    <div class="stat__value">@Ore(el.Highest)<span>öre</span></div>
+                </div>
+            </div>
+            <details class="hours-table">
+                <summary>Visa alla timmar som tabell</summary>
+                <table>
+                    <thead>
+                        <tr><th scope="col">Timme</th><th scope="col">öre/kWh</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var hour in el.Hours)
+                        {
+                            <tr>
+                                <td>@hour.Start.ToString("HH:mm")–@hour.End.ToString("HH:mm")</td>
+                                <td>@Ore(hour.SekPerKwh)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </details>
+        }
+        else
+        {
+            <p class="empty-state">Elpriser kunde inte hämtas just nu.</p>
+        }
+    </section>
+    }
+
+    @if (Settings.InterestRates.Enabled || Settings.Stocks.Enabled)
+    {
+        <section class="surface surface--pad rates">
+            <header class="card__head">
+                <h2 class="card__title">@MarketTitle</h2>
+                <span class="eyebrow">@MarketSource</span>
+            </header>
+
+            <div class="rates__groups">
+
+            @if (Settings.InterestRates.Enabled)
+            {
+                <div class="rates__group">
+                    @if (!Data.Rates.IsEmpty)
+                    {
+                        <div class="rates__list">
+                            @foreach (var rate in Data.Rates)
+                            {
+                                <div class="rates__row">
+                                    <span class="rates__label">@rate.Label</span>
+                                    <span class="rates__value">
+                                        @rate.Percent.ToString("0.00", Swedish)<span>%</span>
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="empty-state">@RatesEmptyMessage</p>
+                    }
+                </div>
+            }
+
+            @if (Settings.Stocks.Enabled)
+            {
+                <div class="rates__group">
+                    @if (!Data.Stocks.IsEmpty)
+                    {
+                        <div class="rates__list">
+                            @foreach (var quote in Data.Stocks)
+                            {
+                                <div class="rates__row">
+                                    <span class="rates__label">
+                                        @quote.Label
+                                        @if (quote.Exchange is { } exchange)
+                                        {
+                                            <span class="rates__where">@exchange</span>
+                                        }
+                                    </span>
+
+                                    @if (quote.Price is { } price)
+                                    {
+                                        <span class="rates__value">
+                                            @price.ToString("0.00", Swedish)
+                                            @if (quote.ChangePercent is { } change)
+                                            {
+                                                <span class="stock__change @(change < 0 ? "is-down" : "is-up")">
+                                                    @(change < 0 ? "" : "+")@change.ToString("0.0", Swedish) %
+                                                </span>
+                                            }
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="rates__value rates__value--missing" title="Ingen kurs — se Inställningar">–</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="empty-state">@StocksEmptyMessage</p>
+                    }
+                </div>
+            }
+
+            </div>
+        </section>
+    }
+
+    </div>
+    <div class="economy__side">
+    @if (Settings.GasolinePrice.Enabled)
+    {
+    <section class="surface surface--pad">
+        <header class="card__head">
+            <h2 class="card__title">Drivmedel</h2>
+            <span class="eyebrow">@FuelScope</span>
+        </header>
+
+        @if (!Data.FuelPrices.IsEmpty)
+        {
+            @foreach (var price in Data.FuelPrices)
+            {
+                <div class="fuel__row">
+                    <div class="fuel__what">
+                        <div class="fuel__name">@FuelLabel(price.FuelType)</div>
+                        <div class="fuel__station">
+                            <span class="fuel__brand">@price.Brand</span>
+                            @if (price.Location is { } location)
+                            {
+                                <span class="fuel__where">
+                                    <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
+                                    @location
+                                </span>
+                            }
+                        </div>
+                    </div>
+                    <div class="fuel__price">
+                        @price.Price.ToString("0.00", Swedish)<span>kr</span>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="empty-state">@FuelEmptyMessage</p>
+        }
+    </section>
+    }
+
+    @if (Settings.FinanceNews.Enabled)
+    {
+        <section class="surface surface--pad news">
+            <div class="news__head">
+                <span class="eyebrow">@Settings.FinanceNews.Title</span>
+            </div>
+
+            @if (!Data.FinanceNews.IsEmpty)
+            {
+                <ol class="news__list">
+                    @foreach (var item in Data.FinanceNews)
+                    {
+                        <li class="news__item">
+                            <div class="news__row">
+                                <h3 class="news__title">@item.Title</h3>
+                                <span class="news__when">@item.When</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(item.Summary))
+                            {
+                                <p class="news__summary">@item.Summary</p>
+                            }
+                        </li>
+                    }
+                </ol>
+            }
+            else
+            {
+                <p class="empty-state">Inga artiklar hämtade just nu.</p>
+            }
+        </section>
+    }
+
+    </div>
+
+    @if (!Settings.ElectricityPrice.Enabled && !Settings.GasolinePrice.Enabled
+         && !Settings.FinanceNews.Enabled && !Settings.InterestRates.Enabled
+         && !Settings.Stocks.Enabled)
+    {
+        <p class="empty-state">Allt på den här fliken är avstängt under Inställningar.</p>
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Swedish = CultureInfo.GetCultureInfo("sv-SE");
+    private DashboardOptions Settings => Options.CurrentValue;
+    private string RateSource => Data.Rates.IsEmpty ? "Riksbanken": $"Riksbanken · {Data.Rates.Max(r => r.Observed).ToString("d MMM", Swedish)}";
+    private string MarketSource => string.Join(" · ", new[]
+    {
+        Settings.InterestRates.Enabled ? RateSource : null,
+        Settings.Stocks.Enabled ? "Finnhub" : null,
+    }.Where(x => x is not null));
+    
+    private string RatesEmptyMessage => Settings.InterestRates.Series.Count == 0 ? "Lägg till räntor under Inställningar → Ekonomi." : "Räntor kunde inte hämtas just nu.";
+    private string MarketTitle => (Settings.InterestRates.Enabled, Settings.Stocks.Enabled) switch
+    {
+        (true, true) => "Räntor & aktier",
+        (false, true) => "Aktier",
+        _ => "Räntor",
+    };
+
+    private string StocksEmptyMessage => Settings.Stocks.Symbols.Count == 0 ? "Sök upp bolag under Inställningar för att visa kurser här." : string.IsNullOrWhiteSpace(Settings.Stocks.ApiKey)? "Fyll i Finnhub-nyckeln under Inställningar."  : "Kurser kunde inte hämtas just nu.";
+    private static string Ore(decimal? sekPerKwh) => sekPerKwh is null ? "–" : Math.Round(sekPerKwh.Value * 100, 0).ToString("0", Swedish);
+    private string FuelEmptyMessage =>  Data.FuelMunicipalities.IsEmpty ? "Bensinpriser kunde inte hämtas just nu." : Settings.GasolinePrice.Municipalities.Count > 0 ? "Inga priser rapporteras för valda kommuner — välj fler under Inställningar." : "Inga priser rapporteras just nu.";
+
+    private string FuelScope
+    {
+        get
+        {
+            var chosen = Settings.GasolinePrice.Municipalities;
+
+            return chosen.Count switch
+            {
+                0 => "Billigast i länet",
+                1 => $"Billigast i {chosen[0]}",
+                _ => $"Billigast i {chosen.Count} kommuner",
+            };
+        }
+    }
+
+    private static string FuelLabel(string fuelType) => fuelType switch
+    {
+        "95" => "Bensin 95",
+        "98" => "Bensin 98",
+        "diesel" => "Diesel",
+        "etanol" => "Etanol",
+        _ => fuelType,
+    };
+}

@@ -1,0 +1,20 @@
+﻿@inherits LayoutComponentBase
+@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> HomeOptions
+
+<PageTitle>@HomeName</PageTitle>
+
+<div class="shell">
+    <TabBar />
+
+    <TouchKeyboard />
+
+    <main class="view">
+        @Body
+    </main>
+</div>
+
+@code {
+    private string HomeName => HomeOptions.CurrentValue.HomeName is { Length: > 0 } n ? n : "Hemma";
+}

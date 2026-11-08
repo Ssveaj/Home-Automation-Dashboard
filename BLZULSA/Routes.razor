@@ -1,0 +1,13 @@
+
+<Router AppAssembly="@typeof(Routes).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(BLZULSA.Shared.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Sidan finns inte</PageTitle>
+        <LayoutView Layout="@typeof(BLZULSA.Shared.MainLayout)">
+            <p role="alert">Det finns inget på den adressen.</p>
+        </LayoutView>
+    </NotFound>
+</Router>

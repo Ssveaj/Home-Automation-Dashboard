@@ -1,0 +1,29 @@
+﻿@using BLZULSA.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<DashboardOptions> Options
+
+<nav class="tabs" aria-label="Huvudmeny">
+    <div class="tabs__inner">
+        @foreach (var tab in Tabs)
+        {
+            <NavLink class="tab" href="@tab.Href" Match="@tab.Match">
+                <span class="material-symbols-outlined tab__icon" aria-hidden="true">@tab.Icon</span>
+                <span class="tab__label">@(tab.Label ?? HomeName)</span>
+            </NavLink>
+        }
+    </div>
+</nav>
+
+@code {
+    private sealed record Tab(string? Label, string Href, string Icon, NavLinkMatch Match);
+    private string HomeName => Options.CurrentValue.HomeName is { Length: > 0 } name ? name : "Hemma";
+
+    private static readonly Tab[] Tabs =
+    [
+        new(null, "", "cottage", NavLinkMatch.All),
+        new("Smarta hem", "smarta-hem", "lightbulb", NavLinkMatch.Prefix),
+        new("Ekonomi", "ekonomi", "monitoring", NavLinkMatch.Prefix),
+        new("Planering", "planering", "event", NavLinkMatch.Prefix),
+        new("Inställningar", "installningar", "tune", NavLinkMatch.Prefix),
+    ];
+}
